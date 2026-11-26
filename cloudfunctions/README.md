@@ -10,21 +10,17 @@
 
 > 环境 ID 不是密钥，客户端本来就要用它初始化，可以直接写在代码里。
 
-### 1.2 填入环境 ID
+### 1.2 环境 ID（已配置）
 
-编辑 [src/config.ts](../src/config.ts)：
+当前环境 ID 已写入 [src/config.ts](../src/config.ts)：
 
 ```ts
-export const CLOUD_ENV = 'cloud1-2gabcdefg1234567';
+export const CLOUD_ENV = 'cloud1-d0gjkempz0f6d4ef2';
 ```
 
-留空则整包以离线模式运行（大厅/游戏照常，只是不登录、不云同步）。
+换环境时改这里并 `npm run build`；留空则整包以离线模式运行（大厅/游戏照常，只是不登录、不云同步）。
 
-改完执行：
-
-```bash
-npm run build
-```
+> 环境 ID 会随客户端打包，属于公开标识，不是密钥。
 
 ### 1.3 建数据库集合
 
@@ -59,22 +55,34 @@ gameId(升序) + type(升序) + score(降序)
 
 第一次部署会安装 `wx-server-sdk`，需要等 1–2 分钟。
 
-### 2.2 命令行（可选）
+### 2.2 命令行（可选，一次部署全部）
 
-Windows 上 CLI 一般在：
+本机 CLI 路径：
 
 ```
-C:\Program Files (x86)\Tencent\微信web开发者工具\cli.bat
+D:\Program Files (x86)\WeChatDevelopTool\微信web开发者工具\cli.bat
 ```
 
-先确认已开启「设置 → 安全设置 → 服务端口」，然后：
+前提：开发者工具已登录，且「设置 → 安全设置 → 服务端口」已开启。
+
+在 `cmd.exe` 里一次部署全部 6 个函数：
 
 ```bat
-"C:\Program Files (x86)\Tencent\微信web开发者工具\cli.bat" cloud functions deploy ^
-  --e <envId> --n login -r --project "D:\Project\WeChat\EmberJadedOneHeartGane"
+"D:\Program Files (x86)\WeChatDevelopTool\微信web开发者工具\cli.bat" cloud functions deploy ^
+  --env cloud1-d0gjkempz0f6d4ef2 ^
+  --names login sync leaderboard submitScore config deleteAccount ^
+  --remote-npm-install ^
+  --project "D:\Project\WeChat\EmberJadedOneHeartGane"
 ```
 
-`--n` 换成函数名逐个部署。
+查看已部署的函数：
+
+```bat
+"C:\...\cli.bat" cloud functions list --env cloud1-d0gjkempz0f6d4ef2 ^
+  --project "D:\Project\WeChat\EmberJadedOneHeartGane"
+```
+
+> `--remote-npm-install` 等价于图形界面的「云端安装依赖」，不会上传本地 `node_modules`。
 
 ## 3. 验证
 
