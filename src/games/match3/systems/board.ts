@@ -15,6 +15,38 @@ export interface ResolveResult {
   score: number;
 }
 
+export interface CellRef {
+  r: number;
+  c: number;
+  value: number;
+}
+
+export interface FallMove {
+  from: CellRef;
+  to: { r: number; c: number };
+}
+
+export interface SpawnEntry {
+  r: number;
+  c: number;
+  value: number;
+}
+
+/** 一段连锁：表现层按这个顺序播「消除 → 下落 → 补充」。 */
+export interface ResolveStep {
+  index: number;
+  cleared: CellRef[];
+  falls: FallMove[];
+  spawns: SpawnEntry[];
+  gained: number;
+  /** 本段结算后的棋盘快照，供表现层逐段插值。 */
+  snapshot: Board;
+}
+
+export interface ResolveReport extends ResolveResult {
+  steps: ResolveStep[];
+}
+
 export function swapCells(board: Board, a: Cell, b: Cell): void {
   const value = board[a.r][a.c];
   board[a.r][a.c] = board[b.r][b.c];
@@ -83,45 +115,82 @@ export function hasPossibleMove(board: Board): boolean {
 }
 
 export function collapse(board: Board, colors: number, rng: Rng): void {
+  collapseWithReport(board, colors, rng);
+}
+
+export function collapseWithReport(
+  board: Board,
+  colors: number,
+  rng: Rng,
+): { falls: FallMove[]; spawns: SpawnEntry[] } {
   const rows = board.length;
   const cols = board[0]?.length ?? 0;
+  const falls: FallMove[] = [];
+  const spawns: SpawnEntry[] = [];
 
   for (let c = 0; c < cols; c += 1) {
     let write = rows - 1;
     for (let r = rows - 1; r >= 0; r -= 1) {
-      if (board[r][c] === EMPTY) continue;
-      board[write][c] = board[r][c];
+      const value = board[r][c];
+      if (value === EMPTY) continue;
+      if (r !== write) {
+        falls.push({ from: { r, c, value }, to: { r: write, c } });
+        board[write][c] = value;
+        board[r][c] = EMPTY;
+      }
       write -= 1;
     }
     for (let r = write; r >= 0; r -= 1) {
-      board[r][c] = rng.int(colors);
+      const value = rng.int(colors);
+      board[r][c] = value;
+      spawns.push({ r, c, value });
     }
   }
+
+  return { falls, spawns };
 }
 
-export function resolveBoard(board: Board, colors: number, rng: Rng): ResolveResult {
+export function resolveWithReport(board: Board, colors: number, rng: Rng): ResolveReport {
+  const steps: ResolveStep[] = [];
   let cleared = 0;
   let cascades = 0;
   let score = 0;
+  const cols = board[0]?.length ?? 0;
 
   for (;;) {
     const matches = findMatches(board);
     if (matches.size === 0) break;
 
     cascades += 1;
+    const gained = matches.size * 10 * cascades;
     cleared += matches.size;
-    score += matches.size * 10 * cascades;
+    score += gained;
 
-    const cols = board[0]?.length ?? 0;
+    const clearedCells: CellRef[] = [];
     for (const key of matches) {
       const r = Math.floor(key / cols);
       const c = key % cols;
+      clearedCells.push({ r, c, value: board[r][c] });
       board[r][c] = EMPTY;
     }
-    collapse(board, colors, rng);
+
+    const { falls, spawns } = collapseWithReport(board, colors, rng);
+    steps.push({
+      index: cascades,
+      cleared: clearedCells,
+      falls,
+      spawns,
+      gained,
+      snapshot: board.map((row) => [...row]),
+    });
   }
 
-  return { cleared, cascades, score };
+  return { steps, cleared, cascades, score };
+}
+
+export function resolveBoard(board: Board, colors: number, rng: Rng): ResolveResult {
+  const report = resolveWithReport(board, colors, rng);
+  return { cleared: report.cleared, cascades: report.cascades, score: report.score };
 }
 
 function wouldCreateMatch(board: Board, r: number, c: number, value: number): boolean {

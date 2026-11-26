@@ -20,40 +20,118 @@ if (
 }
 
 const gradient = { addColorStop() {} };
-const ctx = new Proxy(
-  {},
-  {
-    get(target, prop) {
-      if (prop === 'createLinearGradient' || prop === 'createRadialGradient') {
-        return () => gradient;
-      }
-      if (prop === 'measureText') {
-        return () => ({ width: 20 });
-      }
-      if (prop in target) return target[prop];
-      return () => {};
+function createMockCtx() {
+  return new Proxy(
+    {},
+    {
+      get(target, prop) {
+        if (prop === 'createLinearGradient' || prop === 'createRadialGradient') {
+          return () => gradient;
+        }
+        if (prop === 'measureText') {
+          return () => ({ width: 20 });
+        }
+        if (prop === 'getImageData') {
+          return () => ({ data: new Uint8ClampedArray(4) });
+        }
+        if (prop in target) return target[prop];
+        return () => {};
+      },
+      set(target, prop, value) {
+        target[prop] = value;
+        return true;
+      },
     },
-    set(target, prop, value) {
-      target[prop] = value;
-      return true;
-    },
-  },
-);
+  );
+}
 
-const canvas = {
-  width: 0,
-  height: 0,
-  getContext: () => ctx,
-};
+// 微信里 wx.createCanvas() 每次返回新画布；主画布与离屏图集必须分开。
+const createdCanvases = [];
+function createMockCanvas() {
+  const c = {
+    width: 0,
+    height: 0,
+    getContext: () => createMockCtx(),
+  };
+  createdCanvases.push(c);
+  return c;
+}
 
 let touchStart = null;
 let touchEnd = null;
 
 const cloudCalls = [];
+const audioCalls = [];
+
+function createMockAudioParam() {
+  return {
+    value: 0,
+    setValueAtTime() {},
+    exponentialRampToValueAtTime() {},
+    linearRampToValueAtTime() {},
+  };
+}
+
+function createMockNode() {
+  const node = {
+    connect() {
+      return node;
+    },
+    disconnect() {},
+    start() {
+      audioCalls.push('start');
+    },
+    stop() {},
+    onended: null,
+  };
+  return node;
+}
+
+// 最小 WebAudio 假实现：只要能跑通合成路径且不抛错即可。
+const mockAudioCtx = {
+  currentTime: 0,
+  sampleRate: 44100,
+  destination: createMockNode(),
+  createGain: () => ({ ...createMockNode(), gain: createMockAudioParam() }),
+  createOscillator: () => ({
+    ...createMockNode(),
+    type: 'sine',
+    frequency: createMockAudioParam(),
+  }),
+  createBiquadFilter: () => ({
+    ...createMockNode(),
+    type: 'lowpass',
+    frequency: createMockAudioParam(),
+    Q: createMockAudioParam(),
+  }),
+  createBufferSource: () => ({ ...createMockNode(), buffer: null }),
+  createBuffer: (_channels, length) => ({
+    getChannelData: () => new Float32Array(length),
+  }),
+  resume: () => Promise.resolve(),
+  suspend: () => Promise.resolve(),
+};
+
+const mockBgm = {
+  src: '',
+  loop: false,
+  volume: 0.5,
+  obeyMuteSwitch: true,
+  play: () => Promise.resolve(),
+  pause: () => {},
+  stop: () => {},
+};
 
 globalThis.wx = {
-  createCanvas: () => canvas,
+  createCanvas: () => createMockCanvas(),
   createImage: () => ({}),
+  createWebAudioContext: () => mockAudioCtx,
+  createInnerAudioContext: () => mockBgm,
+  setInnerAudioOption: () => {},
+  vibrateShort: () => {
+    audioCalls.push('vibrate');
+  },
+  getDeviceInfo: () => ({ benchmarkLevel: 20, platform: 'devtools' }),
   getWindowInfo: () => ({
     windowWidth: 375,
     windowHeight: 812,
@@ -119,7 +197,7 @@ globalThis.wx = {
 let frames = 0;
 globalThis.requestAnimationFrame = (cb) => {
   frames += 1;
-  if (frames < 12) setTimeout(() => cb(Date.now()), 16);
+  if (frames < 400) setTimeout(() => cb(Date.now()), 16);
   return frames;
 };
 
@@ -147,11 +225,36 @@ function tap(clientX, clientY) {
   });
 }
 
-// 排行榜 → 关闭 → 进入三消 → 点棋盘
+// 设计坐标 → 客户端坐标（375 宽的模拟屏，scale = 0.5）
+const SCALE = 375 / 750;
+const BOARD_X = 45;
+const BOARD_Y = 88 + 250; // safeTop(44) / 0.5 + 250
+const CELL = 82.5;
+
+function tapCell(row, col) {
+  const dx = BOARD_X + (col + 0.5) * CELL;
+  const dy = BOARD_Y + (row + 0.5) * CELL;
+  tap(dx * SCALE, dy * SCALE);
+}
+
+// 排行榜 → 关闭 → 进入三消
 setTimeout(() => tap(73, 742), 40);
 setTimeout(() => tap(187, 538), 120);
-setTimeout(() => tap(100, 200), 200);
-setTimeout(() => tap(200, 250), 380);
+
+// 扫一遍前几行的相邻交换，必然能命中至少一次有效三连，
+// 从而覆盖 交换 → 消除 → 下落 → 音效/粒子 的完整链路。
+let delay = 260;
+for (let row = 0; row < 3; row += 1) {
+  for (let col = 0; col < 6; col += 1) {
+    const r = row;
+    const c = col;
+    setTimeout(() => {
+      tapCell(r, c);
+      setTimeout(() => tapCell(r, c + 1), 24);
+    }, delay);
+    delay += 90;
+  }
+}
 
 setTimeout(() => {
   const failed =
@@ -173,8 +276,16 @@ setTimeout(() => {
     }
   }
 
+  // 合成音效至少应该起振一次，说明出手动真的有反馈。
+  if (!audioCalls.includes('start')) {
+    console.error('[smoke] failed: no synthesized sfx was played');
+    process.exit(1);
+  }
+
+  const mainCanvas = createdCanvases[0] ?? { width: 0, height: 0 };
   console.log(
-    `[smoke] ok (${frames} frames, canvas ${canvas.width}x${canvas.height}, cloud: ${cloudCalls.join(',')})`,
+    `[smoke] ok (${frames} frames, canvas ${mainCanvas.width}x${mainCanvas.height}, ` +
+      `cloud: ${cloudCalls.join(',')}, audio: ${audioCalls.length} events)`,
   );
   process.exit(0);
-}, 800);
+}, delay + 1200);

@@ -9,8 +9,11 @@ import { AudioService } from '../core/audio/audio';
 import { CloudService } from '../core/cloud/cloud';
 import { GameRegistry } from '../core/game-registry';
 import type { GameDefinition } from '../core/types';
+import { HapticsService } from '../core/haptics/haptics';
 import { InputService } from '../core/input/input';
+import { ParticleSystem } from '../core/particles/particles';
 import { ProfileService } from '../core/profile';
+import { QualityService } from '../core/quality/quality';
 import { Renderer } from '../core/render/renderer';
 import { createRng } from '../core/rng';
 import { GameScene } from '../core/scene/game-scene';
@@ -21,11 +24,29 @@ import { StorageService } from '../core/storage/storage';
 import { TimeService } from '../core/time/time';
 import { logger } from '../core/utils/logger';
 import { AppServices } from '../core/app/services';
+import { createFeedback } from '../shared/game-kit/feedback';
+import { SpriteAtlas, SpriteId } from '../shared/design-system/sprite-atlas';
 
 interface Notice {
   text: string;
   until: number;
 }
+
+const ATLAS_IDS: SpriteId[] = [
+  'tile-berry',
+  'tile-honey',
+  'tile-mint',
+  'tile-sky',
+  'tile-lilac',
+  'shadow',
+  'p-star',
+  'p-petal',
+  'p-bubble',
+  'p-dust',
+  'p-coin',
+  'p-sugar',
+  'p-ring',
+];
 
 export class App {
   private readonly renderer: Renderer;
@@ -36,22 +57,46 @@ export class App {
   private readonly services: AppServices;
   private readonly scenes = new SceneManager();
   private readonly input: InputService;
+  private readonly quality: QualityService;
+  private readonly particles: ParticleSystem;
+  private readonly haptics = new HapticsService();
+  private readonly atlas: SpriteAtlas;
 
   private loadingMessage = '';
   private notice: Notice | null = null;
   private paused = false;
   private lastTick = 0;
+  private lastFrameMs = 0;
 
   constructor() {
-    this.renderer = new Renderer();
+    this.quality = new QualityService(platform.getMetrics());
+    this.renderer = new Renderer(platform.getMetrics(), this.quality.profile.maxDpr);
     this.storage = new StorageService();
     this.cloud = new CloudService();
-    this.audio = new AudioService();
+    this.audio = new AudioService(
+      () => platform.createWebAudioContext(),
+      () => platform.createInnerAudioContext(),
+    );
     this.profile = new ProfileService(this.storage);
+
+    this.atlas = new SpriteAtlas();
+    this.particles = new ParticleSystem(512);
+    for (const id of ATLAS_IDS) this.particles.registerFrame(id, this.atlas.frame(id));
 
     const settings = this.profile.get().settings;
     this.audio.setMusic(settings.music);
     this.audio.setSfx(settings.sfx);
+    this.audio.setMaxVoices(this.quality.profile.sfxVoices);
+    this.haptics.setEnabled(settings.haptics);
+    this.quality.setPreference(settings.reducedMotion ? 'reduced' : 'auto');
+    platform.setInnerAudioOption(true);
+
+    const feedback = createFeedback({
+      audio: this.audio,
+      haptics: this.haptics,
+      particles: this.particles,
+      quality: this.quality,
+    });
 
     this.input = new InputService(this.renderer);
     const services: AppServices = {
@@ -68,12 +113,20 @@ export class App {
       rng: createRng(Date.now() >>> 0),
       profile: this.profile,
       logger,
+      feedback,
+      particles: this.particles,
+      haptics: this.haptics,
+      quality: this.quality,
+      atlas: this.atlas,
+      debugStats: () => this.debugStats,
       openGame: (gameId) => this.openGame(gameId),
     };
 
     this.services = services;
 
     this.input.onTap((point) => {
+      // 首次触摸解锁音频，之后才允许出声。
+      this.audio.unlock();
       if (this.loadingMessage) return;
       this.scenes.tap(point.x, point.y);
     });
@@ -81,10 +134,13 @@ export class App {
     platform.onShow(() => {
       this.paused = false;
       this.lastTick = Date.now();
+      this.audio.resume();
     });
     platform.onHide(() => {
       this.paused = true;
       this.audio.pause();
+      // 切后台把动画直接落终态，回来不会看到半截动画。
+      this.particles.clear();
     });
     platform.onError((error) => logger.error('uncaught', error));
   }
@@ -109,14 +165,27 @@ export class App {
     this.lastTick = now;
 
     if (!this.paused) {
+      this.quality.reportFrame(dt * 1000);
       this.scenes.update(dt);
+      this.particles.update(dt);
       this.renderer.beginFrame();
       this.scenes.render(this.renderer);
+      this.particles.draw(this.renderer.ctx);
       this.renderOverlays();
+      this.lastFrameMs = dt * 1000;
     }
 
     this.scheduleFrame();
   };
+
+  get debugStats(): { fps: number; frameMs: number; particles: number; tier: string } {
+    return {
+      fps: this.lastFrameMs > 0 ? Math.round(1000 / this.lastFrameMs) : 0,
+      frameMs: Math.round(this.lastFrameMs * 10) / 10,
+      particles: this.particles.activeCount,
+      tier: this.quality.tier,
+    };
+  }
 
   private openGame(gameId: string): void {
     if (this.loadingMessage) return;

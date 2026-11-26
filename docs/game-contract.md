@@ -166,22 +166,54 @@ export interface DuoModeDefinition {
 - `reward_claim`；
 - `error`（类型/位置，不含个人信息）。
 
-## 10. 测试要求
+## 10. 反馈契约（必须实现）
+
+表现层是共享底座，游戏**不得**自造一套。详见 [motion.md](./motion.md)。
+
+`GameContext` 已提供：
+
+```ts
+feedback.tap()                       // 点击
+feedback.select()                    // 选中
+feedback.invalid(x?, y?)             // 非法操作（低音 + 轻震，不做红屏）
+feedback.match(comboIndex, x?, y?)   // 消除，音高随连击递增
+feedback.pop(x, y)                   // 气泡/合成
+feedback.drop(x, y)                  // 落地
+feedback.reward(x?, y?) / coin(x, y) // 奖励
+feedback.win(x?, y?) / fail()        // 结算
+feedback.transition()                // 场景切换
+feedback.burst(kind, x, y, scale?)   // 指定位置的粒子
+```
+
+规则：
+
+- 游戏内**禁止**直接调用 `ctx.audio.playSfx`，必须走 `feedback`；
+- 时长只用 `DURATION` 的 6 档；
+- 粒子只用 `BURSTS` 的 8 个预设；
+- 任何动画都必须能被 `tweens.skipAll()` 立刻结算；
+- 「减少动效」开启时不得有粒子与震动；
+- 无音频能力时静默降级。
+
+**验收**：新游戏如果没实现 tap / invalid / success / reward / fail 五类反馈，不算完成。
+
+## 11. 测试要求
 
 - `systems/` 纯逻辑单测；
 - 固定 seed 跑 1000 局 headless；
 - 存档 migration 测试；
+- 动画不改变玩法结果（同 seed 对照）；
 - 双人输入模拟；
 - 关键 UI 快照（可选）；
 - 包体检查。
 
-## 11. 模板
+## 12. 模板
 
 `src/games/_template` 提供最小实现：
 
 ```
 game.ts
 systems/
+view/
 data/
 assets/
 tests/

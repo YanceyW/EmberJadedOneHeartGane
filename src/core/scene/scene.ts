@@ -13,9 +13,14 @@ export class SceneManager {
   private current: Scene | null = null;
   private replacing = false;
 
+  /** 场景切换：统一 160ms 交叉淡入，避免每个场景各写一套。 */
+  transitionMs = 160;
+  private transition = 0;
+
   async replace(scene: Scene): Promise<void> {
     if (this.replacing) return;
     this.replacing = true;
+    this.transition = 1;
     try {
       if (this.current) {
         try {
@@ -33,10 +38,23 @@ export class SceneManager {
 
   update(dt: number): void {
     this.current?.update(dt);
+    if (this.transition > 0) {
+      this.transition = Math.max(0, this.transition - dt * (1000 / this.transitionMs));
+    }
   }
 
   render(renderer: Renderer): void {
     this.current?.render(renderer);
+
+    // 新场景从浅色淡入，避免「黑一下」的突兀切换。
+    if (this.transition > 0.001) {
+      const ctx = renderer.ctx;
+      ctx.save();
+      ctx.globalAlpha = this.transition * 0.85;
+      ctx.fillStyle = '#FFF6E9';
+      ctx.fillRect(0, 0, renderer.width, renderer.height);
+      ctx.restore();
+    }
   }
 
   tap(x: number, y: number): void {

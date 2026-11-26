@@ -40,8 +40,51 @@ export const platform = {
     return canvas;
   },
 
+  // 离屏画布：用于预烘焙 sprite 图集与程序化缓存。
+  createOffscreenCanvas(width: number, height: number): any {
+    const offscreen = wx.createCanvas();
+    offscreen.width = Math.max(1, Math.round(width));
+    offscreen.height = Math.max(1, Math.round(height));
+    return offscreen;
+  },
+
   createImage(): any {
     return wx.createImage();
+  },
+
+  getDeviceInfo(): { benchmarkLevel?: number; platform?: string; brand?: string } {
+    try {
+      if (typeof wx.getDeviceInfo === 'function') return wx.getDeviceInfo();
+    } catch {
+      // 低版本没有该接口时返回空对象。
+    }
+    return {};
+  },
+
+  createWebAudioContext(): any | null {
+    try {
+      if (typeof wx.createWebAudioContext === 'function') return wx.createWebAudioContext();
+    } catch {
+      // 无 WebAudio 能力时静默降级。
+    }
+    return null;
+  },
+
+  createInnerAudioContext(): any | null {
+    try {
+      if (typeof wx.createInnerAudioContext === 'function') return wx.createInnerAudioContext();
+    } catch {
+      // ignore
+    }
+    return null;
+  },
+
+  setInnerAudioOption(obeyMuteSwitch: boolean): void {
+    try {
+      wx.setInnerAudioOption?.({ obeyMuteSwitch });
+    } catch {
+      // ignore
+    }
   },
 
   storage: {
@@ -126,8 +169,13 @@ export const platform = {
     wx.showToast?.({ title: message, icon: 'none', duration: 1600 });
   },
 
-  vibrate(): void {
-    wx.vibrateShort?.({ type: 'light' });
+  vibrate(type: 'light' | 'medium' | 'heavy' = 'light'): void {
+    try {
+      if (typeof wx === 'undefined') return;
+      wx.vibrateShort?.({ type });
+    } catch {
+      // 部分设备/工具链不支持震动，忽略即可。
+    }
   },
 
   share(title: string, imageUrl?: string): void {

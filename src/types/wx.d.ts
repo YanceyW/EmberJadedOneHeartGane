@@ -13,7 +13,11 @@ interface WxApi {
   createCanvas(): any;
   createImage(): any;
   getWindowInfo?(): any;
+  getDeviceInfo?(): { benchmarkLevel?: number; platform?: string; brand?: string };
   getSystemInfoSync(): any;
+  createWebAudioContext?(): any;
+  createInnerAudioContext?(): any;
+  setInnerAudioOption?(options: { obeyMuteSwitch?: boolean }): void;
   onTouchStart(cb: (event: WxTouchEvent) => void): void;
   onTouchMove(cb: (event: WxTouchEvent) => void): void;
   onTouchEnd(cb: (event: WxTouchEvent) => void): void;

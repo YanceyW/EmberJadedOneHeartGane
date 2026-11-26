@@ -55,6 +55,8 @@ export class LobbyScene implements Scene {
   private sfxRect: Rect = { x: 0, y: 0, w: 0, h: 0 };
   private privacyRect: Rect = { x: 0, y: 0, w: 0, h: 0 };
   private deleteRect: Rect = { x: 0, y: 0, w: 0, h: 0 };
+  private hapticsRect: Rect = { x: 0, y: 0, w: 0, h: 0 };
+  private motionRect: Rect = { x: 0, y: 0, w: 0, h: 0 };
   private privacyCloseRect: Rect = { x: 0, y: 0, w: 0, h: 0 };
   private rankCloseRect: Rect = { x: 0, y: 0, w: 0, h: 0 };
   private rankLoading = false;
@@ -145,15 +147,20 @@ export class LobbyScene implements Scene {
       return;
     }
     if (this.modal === 'rank') {
-      if (pointInRect(x, y, this.rankCloseRect)) this.modal = null;
+      if (pointInRect(x, y, this.rankCloseRect)) {
+        this.services.feedback.tap();
+        this.modal = null;
+      }
       return;
     }
 
     if (pointInRect(x, y, this.settingsRect)) {
+      this.services.feedback.tap();
       this.modal = 'settings';
       return;
     }
     if (pointInRect(x, y, this.starRect)) {
+      this.services.feedback.tap();
       this.showToast('星尘可以通过小游戏和每日委托获得');
       return;
     }
@@ -161,9 +168,12 @@ export class LobbyScene implements Scene {
     for (const card of this.cards) {
       if (!pointInRect(x, y, card.rect)) continue;
       if (card.entry.status === 'playable') {
+        this.services.feedback.tap();
         this.services.analytics.track('venue_click', { gameId: card.entry.id });
         this.services.openGame(card.entry.id);
       } else {
+        // 未开放的场馆用「非法操作」的轻反馈，不用成功音误导玩家
+        this.services.feedback.invalid();
         this.showToast(`${card.entry.title}正在装修中，敬请期待`);
       }
       return;
@@ -172,8 +182,10 @@ export class LobbyScene implements Scene {
     for (const nav of this.navs) {
       if (!pointInRect(x, y, nav.rect)) continue;
       if (nav.label === '排行榜') {
+        this.services.feedback.tap();
         this.openRank();
       } else {
+        this.services.feedback.invalid();
         this.showToast(`${nav.label}即将开放`);
       }
       return;
@@ -223,13 +235,19 @@ export class LobbyScene implements Scene {
     ctx.fill();
     ctx.restore();
 
-    this.drawCloud(ctx, 110, safeTop + 250, 1);
-    this.drawCloud(ctx, width - 90, safeTop + 360, 0.8);
+    // 三层视差：远景云海 / 中景山丘 / 前景草地，位移幅度依次放大。
+    const drift = this.services.quality.reducedMotion ? 0 : 1;
+    const far = Math.sin(this.pulse * 0.22) * 10 * drift;
+    const mid = Math.sin(this.pulse * 0.34) * 18 * drift;
+    const near = Math.sin(this.pulse * 0.5) * 26 * drift;
+
+    this.drawCloud(ctx, 110 + far, safeTop + 250, 1);
+    this.drawCloud(ctx, width - 90 + far * 0.8, safeTop + 360, 0.8);
 
     ctx.beginPath();
-    ctx.moveTo(0, height * 0.78);
-    ctx.quadraticCurveTo(width * 0.25, height * 0.72, width * 0.5, height * 0.78);
-    ctx.quadraticCurveTo(width * 0.75, height * 0.84, width, height * 0.76);
+    ctx.moveTo(0, height * 0.78 + mid * 0.15);
+    ctx.quadraticCurveTo(width * 0.25, height * 0.72 + mid * 0.15, width * 0.5, height * 0.78 + mid * 0.15);
+    ctx.quadraticCurveTo(width * 0.75, height * 0.84 + mid * 0.15, width, height * 0.76 + mid * 0.15);
     ctx.lineTo(width, height);
     ctx.lineTo(0, height);
     ctx.closePath();
@@ -237,9 +255,9 @@ export class LobbyScene implements Scene {
     ctx.fill();
 
     ctx.beginPath();
-    ctx.moveTo(0, height * 0.86);
+    ctx.moveTo(-near * 0.4, height * 0.86);
     ctx.quadraticCurveTo(width * 0.3, height * 0.8, width * 0.62, height * 0.86);
-    ctx.quadraticCurveTo(width * 0.84, height * 0.9, width, height * 0.84);
+    ctx.quadraticCurveTo(width * 0.84, height * 0.9, width + near * 0.4, height * 0.84);
     ctx.lineTo(width, height);
     ctx.lineTo(0, height);
     ctx.closePath();
@@ -467,7 +485,7 @@ export class LobbyScene implements Scene {
     ctx.fillStyle = 'rgba(58,46,42,0.35)';
     ctx.fillRect(0, 0, width, height);
 
-    const panel = { x: 75, y: height / 2 - 300, w: width - 150, h: 600 };
+    const panel = { x: 75, y: height / 2 - 340, w: width - 150, h: 680 };
     drawPanel(ctx, panel, { fill: COLORS.paper, radius: RADIUS.xl });
 
     drawText(ctx, '设置', panel.x + 40, panel.y + 62, {
@@ -477,34 +495,45 @@ export class LobbyScene implements Scene {
     });
 
     const settings = this.services.profile.get().settings;
-    this.musicRect = { x: panel.x + 28, y: panel.y + 112, w: panel.w - 56, h: 76 };
-    this.sfxRect = { x: panel.x + 28, y: panel.y + 196, w: panel.w - 56, h: 76 };
+    this.musicRect = { x: panel.x + 28, y: panel.y + 104, w: panel.w - 56, h: 68 };
+    this.sfxRect = { x: panel.x + 28, y: panel.y + 176, w: panel.w - 56, h: 68 };
+    this.hapticsRect = { x: panel.x + 28, y: panel.y + 248, w: panel.w - 56, h: 68 };
+    this.motionRect = { x: panel.x + 28, y: panel.y + 320, w: panel.w - 56, h: 68 };
 
     this.drawSettingRow(ctx, this.musicRect, '音乐', '大厅与小游戏的背景音乐', settings.music);
     this.drawSettingRow(ctx, this.sfxRect, '音效', '点击、奖励与提示音', settings.sfx);
+    this.drawSettingRow(ctx, this.hapticsRect, '震动', '消除与成功时的轻震动', settings.haptics);
+    this.drawSettingRow(
+      ctx,
+      this.motionRect,
+      '减少动效',
+      '关闭缩放/粒子/震动，省电且更稳',
+      settings.reducedMotion,
+    );
 
-    this.privacyRect = { x: panel.x + 40, y: panel.y + 300, w: panel.w - 80, h: 56 };
-    this.deleteRect = { x: panel.x + 40, y: panel.y + 372, w: panel.w - 80, h: 56 };
+    this.privacyRect = { x: panel.x + 40, y: panel.y + 408, w: panel.w - 80, h: 48 };
+    this.deleteRect = { x: panel.x + 40, y: panel.y + 462, w: panel.w - 80, h: 48 };
 
     this.drawLinkRow(ctx, this.privacyRect, '隐私协议', '查看');
     this.drawLinkRow(ctx, this.deleteRect, '删除本地数据', '仅清除本机存档');
 
-    drawText(
-      ctx,
-      `云服务：${this.cloudStatusText()}`,
-      panel.x + 40,
-      panel.y + 442,
-      {
-        size: 18,
-        color: COLORS.inkSoft,
-      },
-    );
-    drawText(ctx, `版本 ${GAME_VERSION}`, panel.x + 40, panel.y + 472, {
-      size: FONT.caption,
+    const stats = this.services.debugStats?.();
+    const cloudLine = `云服务：${this.cloudStatusText()}`;
+    const perfLine = stats
+      ? ` · 档位 ${stats.tier} · FPS ${stats.fps} · 粒子 ${stats.particles}`
+      : '';
+    drawText(ctx, cloudLine + perfLine, panel.x + 40, panel.y + 534, {
+      size: 17,
+      color: COLORS.inkSoft,
+      maxWidth: panel.w - 80,
+    });
+
+    drawText(ctx, `版本 ${GAME_VERSION}`, panel.x + 40, panel.y + 562, {
+      size: 17,
       color: COLORS.inkSoft,
     });
 
-    this.closeRect = { x: panel.x + 40, y: panel.y + 512, w: panel.w - 80, h: 64 };
+    this.closeRect = { x: panel.x + 40, y: panel.y + 592, w: panel.w - 80, h: 64 };
     fillRoundRect(ctx, this.closeRect, COLORS.jade, RADIUS.md);
     drawText(ctx, '关闭', this.closeRect.x + this.closeRect.w / 2, this.closeRect.y + 32, {
       size: FONT.subtitle,
@@ -715,28 +744,52 @@ export class LobbyScene implements Scene {
 
   private handleSettingsTap(x: number, y: number): void {
     if (pointInRect(x, y, this.closeRect)) {
+      this.services.feedback.tap();
       this.modal = null;
       return;
     }
 
     const settings = this.services.profile.get().settings;
     if (pointInRect(x, y, this.musicRect)) {
+      this.services.feedback.tap();
       this.services.profile.updateSettings({ music: !settings.music });
       this.services.audio.setMusic(!settings.music);
       this.showToast(settings.music ? '音乐已关闭' : '音乐已开启');
       return;
     }
     if (pointInRect(x, y, this.sfxRect)) {
+      this.services.feedback.tap();
       this.services.profile.updateSettings({ sfx: !settings.sfx });
       this.services.audio.setSfx(!settings.sfx);
       this.showToast(settings.sfx ? '音效已关闭' : '音效已开启');
       return;
     }
+    if (pointInRect(x, y, this.hapticsRect)) {
+      this.services.profile.updateSettings({ haptics: !settings.haptics });
+      this.services.haptics.setEnabled(!settings.haptics);
+      this.services.feedback.tap();
+      this.showToast(settings.haptics ? '震动已关闭' : '震动已开启');
+      return;
+    }
+    if (pointInRect(x, y, this.motionRect)) {
+      this.services.feedback.tap();
+      this.services.profile.updateSettings({ reducedMotion: !settings.reducedMotion });
+      this.services.quality.setPreference(settings.reducedMotion ? 'auto' : 'reduced');
+      if (settings.reducedMotion) {
+        this.services.feedback.resetCombo();
+      } else {
+        this.services.particles.clear();
+      }
+      this.showToast(settings.reducedMotion ? '动效已恢复' : '已开启减少动效');
+      return;
+    }
     if (pointInRect(x, y, this.privacyRect)) {
+      this.services.feedback.tap();
       this.modal = 'privacy';
       return;
     }
     if (pointInRect(x, y, this.deleteRect)) {
+      this.services.feedback.tap();
       void this.confirmDelete();
     }
   }
@@ -753,6 +806,8 @@ export class LobbyScene implements Scene {
     const settings = this.services.profile.get().settings;
     this.services.audio.setMusic(settings.music);
     this.services.audio.setSfx(settings.sfx);
+    this.services.haptics.setEnabled(settings.haptics);
+    this.services.quality.setPreference(settings.reducedMotion ? 'reduced' : 'auto');
     this.showToast('本地数据已清除');
   }
 

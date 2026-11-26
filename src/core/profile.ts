@@ -4,6 +4,8 @@ export interface ProfileSettings {
   music: boolean;
   sfx: boolean;
   haptics: boolean;
+  /** 无障碍/省电/低端机：关掉缩放、粒子与震动，只保留必要的位移与淡入淡出 */
+  reducedMotion: boolean;
 }
 
 export interface Profile {
@@ -29,7 +31,7 @@ export function createDefaultProfile(): Profile {
     prosperity: 0,
     stardust: 0,
     unlockedGames: ['match3'],
-    settings: { music: true, sfx: true, haptics: true },
+    settings: { music: true, sfx: true, haptics: true, reducedMotion: false },
   };
 }
 

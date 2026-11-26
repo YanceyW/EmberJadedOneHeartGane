@@ -1,57 +1,40 @@
 import { GameContext, GameInstance } from '../../core/types';
 import { Renderer } from '../../core/render/renderer';
 import { createRng, hashString, Rng } from '../../core/rng';
-import {
-  drawBerry,
-  drawDiamond,
-  drawHex,
-  drawPanel,
-  drawPetal,
-  drawStar,
-  drawText,
-  fillRoundRect,
-  pointInRect,
-  Rect,
-  strokeRoundRect,
-} from '../../shared/design-system/draw';
-import { COLORS, FONT, RADIUS } from '../../shared/design-system/tokens';
+import { DURATION } from '../../shared/design-system/motion';
+import { drawPanel, Rect } from '../../shared/design-system/draw';
+import { COLORS, RADIUS } from '../../shared/design-system/tokens';
 import {
   Board,
   Cell,
+  EMPTY,
   createBoard,
   findMatches,
   hasPossibleMove,
   isAdjacent,
-  resolveBoard,
+  resolveWithReport,
   swapCells,
 } from './systems/board';
 import { LEVELS, levelById, Match3Level, starsFor } from './data/levels';
 import { DAILY_MOVES, DAILY_TARGET, dailySeed } from './data/daily';
 import { Match3Save, mergeSaves, migrateSave } from './systems/save';
+import { BoardView } from './view/board-view';
+import { HudState, Match3Hud } from './view/hud';
 
 const ROWS = 6;
 const COLS = 8;
 const BOARD_WIDTH = 660;
-const CELL = BOARD_WIDTH / COLS;
-
-interface TileStyle {
-  fill: string;
-  ink: string;
-  symbol: 'berry' | 'star' | 'diamond' | 'hex' | 'petal';
-}
-
-const TILE_STYLES: TileStyle[] = [
-  { fill: '#F7A8C4', ink: '#8A3650', symbol: 'berry' },
-  { fill: '#F6C667', ink: '#8A641F', symbol: 'star' },
-  { fill: '#A8E6CF', ink: '#2F8F7B', symbol: 'diamond' },
-  { fill: '#8CCFE8', ink: '#2C6D86', symbol: 'hex' },
-  { fill: '#C9B6E4', ink: '#5D4A82', symbol: 'petal' },
-];
+const BOARD_PAD = 18;
+const CELL_W = BOARD_WIDTH / COLS;
+const CELL_H = 82.5;
 
 type GameState = 'playing' | 'won' | 'lost';
 
+/**
+ * 王都三消控制器：只负责状态机、输入、存档与云同步。
+ * 棋盘绘制/动画在 view/board-view.ts，HUD 在 view/hud.ts。
+ */
 export class Match3Game implements GameInstance {
-  private readonly ctx: GameContext;
   private rng: Rng;
   private board: Board;
   private level: Match3Level;
@@ -66,50 +49,45 @@ export class Match3Game implements GameInstance {
   private pulse = 0;
 
   private readonly boardRect: Rect;
-  private readonly backRect: Rect;
-  private readonly dailyRect: Rect;
-  private nextRect: Rect = { x: 0, y: 0, w: 0, h: 0 };
-  private restartRect: Rect = { x: 0, y: 0, w: 0, h: 0 };
-  private homeRect: Rect = { x: 0, y: 0, w: 0, h: 0 };
+  private readonly view: BoardView;
+  private readonly hud: Match3Hud;
+  private pendingTap: Cell | null = null;
 
-  constructor(ctx: GameContext) {
-    this.ctx = ctx;
+  constructor(private readonly ctx: GameContext) {
     this.saveData = migrateSave(ctx.storage.get<unknown>('save:match3', null));
     this.level = levelById(this.saveData.unlockedLevel);
     this.rng = createRng((Date.now() ^ hashString(ctx.gameId) ^ this.level.id) >>> 0);
     this.board = createBoard(ROWS, COLS, this.level.colors, this.rng);
     this.moves = this.level.moves;
+
     this.boardRect = {
       x: 45,
       y: ctx.renderer.safeTop + 250,
       w: BOARD_WIDTH,
-      h: CELL * ROWS,
+      h: CELL_H * ROWS,
     };
-    this.backRect = { x: 40, y: ctx.renderer.safeTop + 22, w: 104, h: 64 };
-    this.dailyRect = {
-      x: ctx.renderer.width - 40 - 128,
-      y: ctx.renderer.safeTop + 22,
-      w: 128,
-      h: 64,
-    };
+
+    this.view = new BoardView(ctx.tweens, ctx.atlas);
+    this.view.configure(ROWS, COLS, CELL_W, CELL_H);
+    this.view.setBoard(this.board);
+    this.hud = new Match3Hud(ctx.renderer);
   }
 
   enter(): void {
-    this.ctx.analytics.track('level_start', { game: 'match3', level: this.level.id });
+    this.ctx.analytics.track('level_start', {
+      game: 'match3',
+      level: this.level.id,
+      daily: this.daily,
+    });
     void this.syncCloud();
   }
 
   exit(): void {
+    this.view.skipAll();
     this.save();
     void this.syncCloud();
-  }
-
-  private async syncCloud(): Promise<void> {
-    const outcome = await this.ctx.cloudSave.syncGame('match3', this.saveData, mergeSaves);
-    if (!outcome.synced) return;
-    // 合并结果只会取更大的进度，可以直接覆盖本地。
-    this.saveData = outcome.data;
-    this.ctx.storage.set('save:match3', this.saveData);
+    this.ctx.particles.clear();
+    this.ctx.feedback.resetCombo();
   }
 
   update(dt: number): void {
@@ -119,131 +97,228 @@ export class Match3Game implements GameInstance {
   render(renderer: Renderer): void {
     const ctx = renderer.ctx;
     this.drawBackground(ctx, renderer);
-    this.drawHeader(ctx, renderer);
-    this.drawBoard(ctx);
-    this.drawFooter(ctx, renderer);
-    if (this.state !== 'playing') this.drawResult(ctx, renderer);
-    this.drawMessage(ctx, renderer);
+
+    drawPanel(
+      ctx,
+      {
+        x: this.boardRect.x - BOARD_PAD,
+        y: this.boardRect.y - BOARD_PAD,
+        w: this.boardRect.w + BOARD_PAD * 2,
+        h: this.boardRect.h + BOARD_PAD * 2,
+      },
+      { fill: COLORS.paper, radius: RADIUS.xl },
+    );
+
+    this.view.render(ctx, this.boardRect, this.selected, this.pulse);
+    this.view.renderCombo(ctx, renderer.width / 2, this.boardRect.y - 34);
+
+    this.hud.render(ctx, this.hudState());
   }
 
   onTap(x: number, y: number): void {
-    if (pointInRect(x, y, this.backRect)) {
+    const hit = this.hud.hitTest(x, y);
+    if (hit === 'back' || hit === 'home') {
+      this.ctx.feedback.tap();
       this.ctx.exitGame();
       return;
     }
-    if (pointInRect(x, y, this.dailyRect)) {
+    if (hit === 'daily') {
+      this.ctx.feedback.tap();
       this.startDaily();
       return;
     }
-
-    if (this.state !== 'playing') {
-      if (this.nextRect.w > 0 && pointInRect(x, y, this.nextRect)) {
-        this.startLevel(this.level.id + 1, false);
-      } else if (pointInRect(x, y, this.restartRect)) {
-        this.reset();
-      } else if (pointInRect(x, y, this.homeRect)) {
-        this.ctx.exitGame();
-      }
+    if (hit === 'restart') {
+      this.ctx.feedback.tap();
+      this.reset();
+      return;
+    }
+    if (hit === 'next') {
+      this.ctx.feedback.tap();
+      this.startLevel(this.level.id + 1, false);
       return;
     }
 
-    if (!pointInRect(x, y, this.boardRect)) return;
-    const c = Math.floor((x - this.boardRect.x) / CELL);
-    const r = Math.floor((y - this.boardRect.y) / CELL);
+    if (this.state !== 'playing') return;
+    this.handleBoardTap(x, y);
+  }
+
+  private handleBoardTap(x: number, y: number): void {
+    if (!this.insideBoard(x, y)) return;
+    const c = Math.floor((x - this.boardRect.x) / CELL_W);
+    const r = Math.floor((y - this.boardRect.y) / CELL_H);
     if (r < 0 || r >= ROWS || c < 0 || c >= COLS) return;
-    if (this.board[r][c] === -1) return;
+
+    // 动画期间只记录最后一次点击，播完立刻消费，避免「点了没反应」。
+    if (this.view.isBusy) {
+      this.pendingTap = { r, c };
+      return;
+    }
+
+    this.selectCell({ r, c });
+  }
+
+  private selectCell(cell: Cell): void {
+    if (this.board[cell.r][cell.c] === EMPTY) return;
 
     if (!this.selected) {
-      this.selected = { r, c };
-      this.ctx.audio.playSfx('select');
+      this.selected = cell;
+      this.ctx.feedback.select();
       return;
     }
 
-    if (this.selected.r === r && this.selected.c === c) {
+    if (this.selected.r === cell.r && this.selected.c === cell.c) {
       this.selected = null;
       return;
     }
 
-    if (!isAdjacent(this.selected, { r, c })) {
-      this.selected = { r, c };
+    if (!isAdjacent(this.selected, cell)) {
+      this.selected = cell;
+      this.ctx.feedback.select();
       return;
     }
 
     const from = this.selected;
     this.selected = null;
-    this.trySwap(from, { r, c });
+    this.trySwap(from, cell);
   }
 
   private trySwap(a: Cell, b: Cell): void {
+    const pre = this.board.map((row) => [...row]);
     swapCells(this.board, a, b);
+
     if (findMatches(this.board).size === 0) {
       swapCells(this.board, a, b);
+      const cx = this.boardRect.x + ((a.c + b.c) / 2 + 0.5) * CELL_W;
+      const cy = this.boardRect.y + ((a.r + b.r) / 2 + 0.5) * CELL_H;
+      this.ctx.feedback.invalid(cx, cy);
       this.flash('这样交换没有三连哦');
+      this.view.playInvalid(a, b, () => this.consumePendingTap());
       return;
     }
 
     this.moves -= 1;
-    this.ctx.audio.playSfx('swap');
-    const result = resolveBoard(this.board, this.level.colors, this.rng);
-    this.score += result.score;
-    if (result.cascades > 1) {
-      this.flash(`连锁 x${result.cascades}，+${result.score}`);
+    const report = resolveWithReport(this.board, this.level.colors, this.rng);
+
+    this.view.beginMove(
+      pre,
+      a,
+      b,
+      report,
+      this.board,
+      () => this.ctx.feedback.tap(),
+      (step) => this.onStep(step.index, step.gained, step.cleared),
+      () => this.onMoveComplete(),
+    );
+  }
+
+  private onStep(comboIndex: number, gained: number, cleared: { r: number; c: number }[]): void {
+    this.score += gained;
+    if (comboIndex > 1) {
+      this.view.showCombo(`连锁 x${comboIndex}  +${gained}`);
+      // 连击时整体加速，避免一次操作等太久
+      this.ctx.tweens.setTimeScale(Math.max(0.7, 1 - (comboIndex - 1) * 0.12));
     }
+
+    let sx = 0;
+    let sy = 0;
+    for (const cell of cleared) {
+      sx += this.boardRect.x + (cell.c + 0.5) * CELL_W;
+      sy += this.boardRect.y + (cell.r + 0.5) * CELL_H;
+    }
+    const count = Math.max(1, cleared.length);
+    this.ctx.feedback.match(comboIndex, sx / count, sy / count);
+  }
+
+  private onMoveComplete(): void {
+    this.ctx.tweens.setTimeScale(1);
+
     if (!hasPossibleMove(this.board)) {
       this.board = createBoard(ROWS, COLS, this.level.colors, this.rng);
       this.selected = null;
+      this.view.setBoard(this.board);
       this.flash('没有可交换的组合，重新洗牌');
+      this.ctx.feedback.drop(this.boardRect.x + this.boardRect.w / 2, this.boardRect.y + this.boardRect.h / 2);
     }
 
     if (this.score >= this.level.target) {
-      this.state = 'won';
-      this.saveData.bestScore = Math.max(this.saveData.bestScore, this.score);
-      this.saveData.wins += 1;
-
-      if (this.daily) {
-        const today = this.ctx.time.todayKey();
-        const previousBest = this.saveData.dailyDate === today ? this.saveData.dailyBest : 0;
-        this.saveData.dailyDate = today;
-        this.saveData.dailyBest = Math.max(previousBest, this.score);
-        this.save();
-        this.ctx.analytics.track('daily_complete', {
-          game: 'match3',
-          score: this.score,
-        });
-      } else {
-        const stars = starsFor(this.level, this.score);
-        const key = `${this.level.id}`;
-        this.saveData.stars[key] = Math.max(this.saveData.stars[key] ?? 0, stars);
-        this.saveData.unlockedLevel = Math.max(
-          this.saveData.unlockedLevel,
-          Math.min(this.level.id + 1, LEVELS.length),
-        );
-        this.save();
-        this.ctx.analytics.track('level_complete', {
-          game: 'match3',
-          level: this.level.id,
-          score: this.score,
-          stars,
-        });
-      }
-
-      void this.submitScore();
+      this.finishWin();
     } else if (this.moves <= 0) {
-      this.state = 'lost';
-      this.ctx.analytics.track(this.daily ? 'daily_fail' : 'level_fail', {
-        game: 'match3',
-        level: this.level.id,
-        score: this.score,
+      this.finishLose();
+    }
+
+    this.consumePendingTap();
+  }
+
+  private finishWin(): void {
+    this.state = 'won';
+    this.saveData.bestScore = Math.max(this.saveData.bestScore, this.score);
+    this.saveData.wins += 1;
+
+    if (this.daily) {
+      const today = this.ctx.time.todayKey();
+      const previous = this.saveData.dailyDate === today ? this.saveData.dailyBest : 0;
+      this.saveData.dailyDate = today;
+      this.saveData.dailyBest = Math.max(previous, this.score);
+    } else {
+      const stars = starsFor(this.level, this.score);
+      const key = `${this.level.id}`;
+      this.saveData.stars[key] = Math.max(this.saveData.stars[key] ?? 0, stars);
+      this.saveData.unlockedLevel = Math.max(
+        this.saveData.unlockedLevel,
+        Math.min(this.level.id + 1, LEVELS.length),
+      );
+    }
+
+    this.save();
+    this.ctx.analytics.track(this.daily ? 'daily_complete' : 'level_complete', {
+      game: 'match3',
+      level: this.level.id,
+      score: this.score,
+    });
+
+    const cx = this.ctx.renderer.width / 2;
+    const cy = this.ctx.renderer.height / 2;
+    this.ctx.feedback.win(cx, cy);
+    this.celebrateStars(cx, cy);
+    void this.submitScore();
+  }
+
+  private finishLose(): void {
+    this.state = 'lost';
+    this.ctx.feedback.fail();
+    this.ctx.analytics.track(this.daily ? 'daily_fail' : 'level_fail', {
+      game: 'match3',
+      level: this.level.id,
+      score: this.score,
+    });
+  }
+
+  /** 星星逐个弹出 + 星屑，成本低但仪式感明显。 */
+  private celebrateStars(cx: number, cy: number): void {
+    if (this.ctx.quality.reducedMotion) return;
+    for (let i = 0; i < 3; i += 1) {
+      this.ctx.tweens.to({
+        duration: DURATION.fast,
+        delay: i * 0.09,
+        easing: (t) => t,
+        onUpdate: () => undefined,
+        onComplete: () => {
+          this.ctx.feedback.burst('sparkle', cx + (i - 1) * 92, cy - 50, 0.9);
+        },
       });
     }
   }
 
+  private consumePendingTap(): void {
+    const pending = this.pendingTap;
+    this.pendingTap = null;
+    if (!pending || this.state !== 'playing') return;
+    this.selectCell(pending);
+  }
+
   private reset(): void {
-    if (this.daily) {
-      this.startDaily();
-    } else {
-      this.startLevel(this.level.id, true);
-    }
+    if (this.daily) this.startDaily();
+    else this.startLevel(this.level.id, true);
   }
 
   private startDaily(): void {
@@ -255,14 +330,8 @@ export class Match3Game implements GameInstance {
       target: DAILY_TARGET,
       colors: 5,
     };
-    const date = this.ctx.time.todayKey();
-    this.rng = createRng(dailySeed(date));
-    this.board = createBoard(ROWS, COLS, this.level.colors, this.rng);
-    this.selected = null;
-    this.score = 0;
-    this.moves = this.level.moves;
-    this.state = 'playing';
-    this.nextRect = { x: 0, y: 0, w: 0, h: 0 };
+    this.rng = createRng(dailySeed(this.ctx.time.todayKey()));
+    this.beginRound();
     this.flash('每日挑战：每天固定棋盘');
     this.ctx.analytics.track('daily_start', { game: 'match3' });
   }
@@ -270,15 +339,10 @@ export class Match3Game implements GameInstance {
   private startLevel(levelId: number, retry: boolean): void {
     this.daily = false;
     this.level = levelById(levelId);
-    const seed = (Date.now() ^ hashString(`${this.ctx.gameId}:${this.level.id}`)) >>> 0;
-    this.rng = createRng(seed);
-    this.board = createBoard(ROWS, COLS, this.level.colors, this.rng);
-    this.selected = null;
-    this.score = 0;
-    this.moves = this.level.moves;
-    this.state = 'playing';
-    this.message = '';
-    this.nextRect = { x: 0, y: 0, w: 0, h: 0 };
+    this.rng = createRng(
+      (Date.now() ^ hashString(`${this.ctx.gameId}:${this.level.id}`)) >>> 0,
+    );
+    this.beginRound();
     this.ctx.analytics.track('level_start', {
       game: 'match3',
       level: this.level.id,
@@ -286,22 +350,78 @@ export class Match3Game implements GameInstance {
     });
   }
 
+  private beginRound(): void {
+    this.view.skipAll();
+    this.board = createBoard(ROWS, COLS, this.level.colors, this.rng);
+    this.view.setBoard(this.board);
+    this.selected = null;
+    this.score = 0;
+    this.moves = this.level.moves;
+    this.state = 'playing';
+    this.message = '';
+    this.pendingTap = null;
+    this.ctx.particles.clear();
+    this.ctx.feedback.resetCombo();
+  }
+
+  private insideBoard(x: number, y: number): boolean {
+    return (
+      x >= this.boardRect.x &&
+      x <= this.boardRect.x + this.boardRect.w &&
+      y >= this.boardRect.y &&
+      y <= this.boardRect.y + this.boardRect.h
+    );
+  }
+
   private save(): void {
+    this.ctx.storage.set('save:match3', this.saveData);
+  }
+
+  private async syncCloud(): Promise<void> {
+    const outcome = await this.ctx.cloudSave.syncGame('match3', this.saveData, mergeSaves);
+    if (!outcome.synced) return;
+    this.saveData = outcome.data;
     this.ctx.storage.set('save:match3', this.saveData);
   }
 
   private async submitScore(): Promise<void> {
     const week = this.ctx.time.weekKey();
     const result = await this.ctx.cloud.submitScore('match3', week, this.score, this.level.id);
-    if (result) {
-      this.flash(`本周第 ${result.rank} 名`);
-    }
+    if (result) this.flash(`本周第 ${result.rank} 名`);
     await this.syncCloud();
   }
 
   private flash(text: string): void {
     this.message = text;
     this.messageUntil = Date.now() + 1400;
+  }
+
+  private hudState(): HudState {
+    const today = this.ctx.time.todayKey();
+    const best = this.daily
+      ? this.saveData.dailyDate === today
+        ? this.saveData.dailyBest
+        : 0
+      : this.saveData.bestScore;
+
+    return {
+      title: this.daily ? '每日挑战' : '王都三消',
+      subtitle: this.daily
+        ? `今天 · ${this.level.moves} 步 · 目标 ${this.level.target} · 最佳 ${best}`
+        : `第 ${this.level.id} 关 · ${this.level.title} · 最佳 ${best}`,
+      score: this.score,
+      moves: this.moves,
+      target: this.level.target,
+      progress: this.score / this.level.target,
+      daily: this.daily,
+      phase: this.state,
+      stars: this.state === 'won' && !this.daily ? starsFor(this.level, this.score) : 0,
+      hasNext: !this.daily && this.state === 'won' && this.level.id < LEVELS.length,
+      pulse: this.pulse,
+      message: Date.now() < this.messageUntil ? this.message : '',
+      boardTop: this.boardRect.y,
+      boardBottom: this.boardRect.y + this.boardRect.h,
+    };
   }
 
   private drawBackground(ctx: CanvasRenderingContext2D, renderer: Renderer): void {
@@ -311,264 +431,5 @@ export class Match3Game implements GameInstance {
     gradient.addColorStop(1, '#E2F3EA');
     ctx.fillStyle = gradient;
     ctx.fillRect(0, 0, renderer.width, renderer.height);
-  }
-
-  private drawHeader(ctx: CanvasRenderingContext2D, renderer: Renderer): void {
-    drawPanel(ctx, this.backRect, { fill: COLORS.paper, radius: RADIUS.md });
-    drawText(ctx, '返回', this.backRect.x + this.backRect.w / 2, this.backRect.y + 32, {
-      size: FONT.caption,
-      color: COLORS.inkSoft,
-      align: 'center',
-    });
-
-    drawPanel(ctx, this.dailyRect, {
-      fill: this.daily ? COLORS.jade : COLORS.paper,
-      radius: RADIUS.md,
-    });
-    drawText(ctx, '每日', this.dailyRect.x + this.dailyRect.w / 2, this.dailyRect.y + 32, {
-      size: FONT.caption,
-      color: this.daily ? COLORS.paper : COLORS.inkSoft,
-      align: 'center',
-      weight: '700',
-    });
-
-    const title = this.daily ? '每日挑战' : '王都三消';
-    const best = this.daily
-      ? this.saveData.dailyDate === this.ctx.time.todayKey()
-        ? this.saveData.dailyBest
-        : 0
-      : this.saveData.bestScore;
-    const subtitle = this.daily
-      ? `今天 · ${this.level.moves} 步 · 目标 ${this.level.target} · 最佳 ${best}`
-      : `第 ${this.level.id} 关 · ${this.level.title} · 最佳 ${best}`;
-
-    drawText(ctx, title, renderer.width / 2, renderer.safeTop + 54, {
-      size: FONT.display,
-      weight: '700',
-      color: COLORS.ink,
-      align: 'center',
-    });
-    drawText(ctx, subtitle, renderer.width / 2, renderer.safeTop + 96, {
-      size: FONT.caption,
-      color: COLORS.inkSoft,
-      align: 'center',
-      maxWidth: renderer.width - 220,
-    });
-
-    const hudY = renderer.safeTop + 126;
-    const scoreRect = { x: 40, y: hudY, w: 320, h: 88 };
-    const movesRect = { x: 390, y: hudY, w: 320, h: 88 };
-    drawPanel(ctx, scoreRect, { fill: COLORS.paper, radius: RADIUS.lg });
-    drawPanel(ctx, movesRect, { fill: COLORS.paper, radius: RADIUS.lg });
-
-    drawText(ctx, '分数', scoreRect.x + 24, scoreRect.y + 28, {
-      size: 18,
-      color: COLORS.inkSoft,
-    });
-    drawText(ctx, `${this.score}`, scoreRect.x + 24, scoreRect.y + 62, {
-      size: FONT.subtitle,
-      weight: '700',
-      color: COLORS.jade,
-    });
-    drawText(ctx, '步数', movesRect.x + 24, movesRect.y + 28, {
-      size: 18,
-      color: COLORS.inkSoft,
-    });
-    drawText(ctx, `${this.moves}`, movesRect.x + 24, movesRect.y + 62, {
-      size: FONT.subtitle,
-      weight: '700',
-      color: this.moves <= 5 ? COLORS.coral : COLORS.ink,
-    });
-  }
-
-  private drawBoard(ctx: CanvasRenderingContext2D): void {
-    drawPanel(
-      ctx,
-      {
-        x: this.boardRect.x - 18,
-        y: this.boardRect.y - 18,
-        w: this.boardRect.w + 36,
-        h: this.boardRect.h + 36,
-      },
-      { fill: COLORS.paper, radius: RADIUS.xl },
-    );
-
-    for (let r = 0; r < ROWS; r += 1) {
-      for (let c = 0; c < COLS; c += 1) {
-        const value = this.board[r][c];
-        if (value === -1) continue;
-        const x = this.boardRect.x + c * CELL;
-        const y = this.boardRect.y + r * CELL;
-        this.drawTile(ctx, x, y, value, Boolean(this.selected?.r === r && this.selected?.c === c));
-      }
-    }
-  }
-
-  private drawTile(
-    ctx: CanvasRenderingContext2D,
-    x: number,
-    y: number,
-    value: number,
-    selected: boolean,
-  ): void {
-    const style = TILE_STYLES[value % TILE_STYLES.length];
-    const pad = selected ? 4 : 7;
-    const rect = { x: x + pad, y: y + pad, w: CELL - pad * 2, h: CELL - pad * 2 };
-
-    fillRoundRect(ctx, rect, style.fill, RADIUS.lg);
-    strokeRoundRect(ctx, rect, selected ? COLORS.gold : 'rgba(58,46,42,0.28)', selected ? 4 : 2, RADIUS.lg);
-
-    ctx.save();
-    ctx.globalAlpha = 0.28;
-    ctx.beginPath();
-    ctx.arc(rect.x + rect.w * 0.34, rect.y + rect.h * 0.3, rect.w * 0.18, 0, Math.PI * 2);
-    ctx.fillStyle = COLORS.paper;
-    ctx.fill();
-    ctx.restore();
-
-    const cx = rect.x + rect.w / 2;
-    const cy = rect.y + rect.h / 2;
-    const size = rect.w * 0.27;
-
-    switch (style.symbol) {
-      case 'berry':
-        drawBerry(ctx, cx, cy, size, style.ink);
-        break;
-      case 'star':
-        drawStar(ctx, cx, cy, size, size * 0.46, COLORS.paper);
-        break;
-      case 'diamond':
-        drawDiamond(ctx, cx, cy, size, COLORS.paper);
-        break;
-      case 'hex':
-        drawHex(ctx, cx, cy, size, COLORS.paper);
-        break;
-      case 'petal':
-        drawPetal(ctx, cx, cy, size, COLORS.paper);
-        break;
-    }
-  }
-
-  private drawFooter(ctx: CanvasRenderingContext2D, renderer: Renderer): void {
-    const y = this.boardRect.y + this.boardRect.h + 34;
-    const bar = { x: 45, y, w: BOARD_WIDTH, h: 16 };
-    fillRoundRect(ctx, bar, 'rgba(58,46,42,0.12)', 8);
-    const progress = Math.min(1, this.score / this.level.target);
-    fillRoundRect(ctx, { ...bar, w: bar.w * progress }, COLORS.jade, 8);
-    drawText(ctx, `目标 ${this.level.target} · 步数 ${this.level.moves}`, 45, y + 42, {
-      size: FONT.caption,
-      color: COLORS.inkSoft,
-    });
-    drawText(ctx, '点击两个相邻甜品交换，凑成三个或更多', renderer.width / 2, y + 92, {
-      size: 20,
-      color: COLORS.inkSoft,
-      align: 'center',
-      maxWidth: renderer.width - 80,
-    });
-  }
-
-  private drawResult(ctx: CanvasRenderingContext2D, renderer: Renderer): void {
-    const width = renderer.width;
-    const height = renderer.height;
-    const panel = { x: 75, y: height / 2 - 270, w: width - 150, h: 540 };
-
-    ctx.fillStyle = 'rgba(58,46,42,0.42)';
-    ctx.fillRect(0, 0, width, height);
-    drawPanel(ctx, panel, { fill: COLORS.paper, radius: RADIUS.xl });
-
-    const won = this.state === 'won';
-    const stars = won && !this.daily ? starsFor(this.level, this.score) : 0;
-    const title = this.daily
-      ? won
-        ? '今日挑战完成！'
-        : '今日挑战失败'
-      : won
-        ? stars >= 3
-          ? '三星达成！'
-          : `${stars} 星过关！`
-        : '步数用完了';
-    drawText(ctx, title, width / 2, panel.y + 84, {
-      size: FONT.display,
-      weight: '700',
-      color: won ? COLORS.jade : COLORS.coral,
-      align: 'center',
-    });
-    drawText(ctx, `本局得分 ${this.score} / ${this.level.target}`, width / 2, panel.y + 142, {
-      size: FONT.body,
-      color: COLORS.inkSoft,
-      align: 'center',
-    });
-
-    if (won && !this.daily) {
-      for (let i = 0; i < 3; i += 1) {
-        const scale = 1 + Math.sin(this.pulse * 3 + i) * 0.06;
-        drawStar(
-          ctx,
-          width / 2 + (i - 1) * 92,
-          panel.y + 220,
-          30 * scale,
-          14 * scale,
-          i < stars ? COLORS.gold : 'rgba(58,46,42,0.12)',
-        );
-      }
-    }
-
-    const hasNext = !this.daily && won && this.level.id < LEVELS.length;
-    this.nextRect = hasNext
-      ? { x: width / 2 - 160, y: panel.y + 270, w: 320, h: 72 }
-      : { x: 0, y: 0, w: 0, h: 0 };
-    this.restartRect = { x: width / 2 - 160, y: panel.y + (hasNext ? 356 : 280), w: 320, h: 64 };
-    this.homeRect = { x: width / 2 - 160, y: panel.y + (hasNext ? 444 : 370), w: 320, h: 56 };
-
-    if (hasNext) {
-      fillRoundRect(ctx, this.nextRect, COLORS.jade, RADIUS.md);
-      drawText(ctx, '下一关', width / 2, this.nextRect.y + 36, {
-        size: FONT.subtitle,
-        color: COLORS.paper,
-        align: 'center',
-        weight: '700',
-      });
-
-      fillRoundRect(ctx, this.restartRect, 'rgba(58,46,42,0.08)', RADIUS.md);
-      drawText(ctx, '重玩本关', width / 2, this.restartRect.y + 32, {
-        size: FONT.body,
-        color: COLORS.inkSoft,
-        align: 'center',
-      });
-    } else {
-      fillRoundRect(ctx, this.restartRect, COLORS.jade, RADIUS.md);
-      drawText(
-        ctx,
-        this.daily ? '再试一次' : won ? '重玩本关' : '重新挑战',
-        width / 2,
-        this.restartRect.y + 32,
-        {
-          size: FONT.subtitle,
-          color: COLORS.paper,
-          align: 'center',
-          weight: '700',
-        },
-      );
-    }
-
-    fillRoundRect(ctx, this.homeRect, 'rgba(58,46,42,0.06)', RADIUS.md);
-    drawText(ctx, '返回大厅', width / 2, this.homeRect.y + 28, {
-      size: FONT.body,
-      color: COLORS.inkSoft,
-      align: 'center',
-    });
-  }
-
-  private drawMessage(ctx: CanvasRenderingContext2D, renderer: Renderer): void {
-    if (!this.message || Date.now() >= this.messageUntil) return;
-    const width = Math.min(renderer.width - 120, Math.max(340, this.message.length * 26 + 64));
-    const rect = { x: (renderer.width - width) / 2, y: renderer.height - 180, w: width, h: 72 };
-    fillRoundRect(ctx, rect, 'rgba(58,46,42,0.88)', RADIUS.xl);
-    drawText(ctx, this.message, renderer.width / 2, rect.y + 36, {
-      size: FONT.body,
-      color: COLORS.paper,
-      align: 'center',
-      maxWidth: rect.w - 48,
-    });
   }
 }

@@ -12,12 +12,12 @@ export class Renderer {
   readonly safeBottom: number;
   readonly metrics: WindowMetrics;
 
-  constructor() {
-    this.metrics = platform.getMetrics();
+  constructor(metrics: WindowMetrics = platform.getMetrics(), maxDpr = 3) {
+    this.metrics = metrics;
     this.canvas = platform.createCanvas();
-    this.dpr = this.metrics.pixelRatio;
-    this.canvas.width = Math.round(this.metrics.width * this.dpr);
-    this.canvas.height = Math.round(this.metrics.height * this.dpr);
+    this.dpr = Math.min(metrics.pixelRatio, maxDpr);
+    this.canvas.width = Math.round(metrics.width * this.dpr);
+    this.canvas.height = Math.round(metrics.height * this.dpr);
 
     const ctx = this.canvas.getContext('2d') as CanvasRenderingContext2D | null;
     if (!ctx) throw new Error('Canvas 2D context unavailable');
