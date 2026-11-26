@@ -184,6 +184,8 @@ export class AudioService {
         this.bgm.loop = true;
         this.bgm.obeyMuteSwitch = true;
         this.bgm.volume = 0.5;
+        // 资源还没生成时不要刷错误日志，静默等待打包进 mp3。
+        this.bgm.onError = () => undefined;
       }
       if (this.bgmSource === source) {
         void this.bgm.play?.();

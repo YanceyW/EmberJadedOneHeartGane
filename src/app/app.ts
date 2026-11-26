@@ -148,6 +148,8 @@ export class App {
   start(): void {
     void this.cloud.init();
     void this.scenes.replace(new LobbyScene(this.services));
+    // 大厅 BGM：mp3 未打包时静默失败，不影响启动。
+    this.audio.playBgm('lobby');
     this.lastTick = Date.now();
     this.scheduleFrame();
   }

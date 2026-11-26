@@ -121,8 +121,8 @@ deformed hands, cluttered background, high contrast, metallic
 | 场景 | 750×1334 或分层 |
 | UI 九宫格 | 可拉伸，边缘 24–48 |
 | 图集 | ≤ 2048×2048 |
-| 音频 SFX | 单声道 44.1k/22.05k，短 |
-| BGM | 单声道/低码率，循环 |
+| 音频 SFX | **不占包体**：运行时用 WebAudio 合成（见 `docs/motion.md`） |
+| BGM | 30–45s 循环，96kbps 单声道 mp3 |
 
 ## 9. 禁止
 
