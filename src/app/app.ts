@@ -1,4 +1,3 @@
-import { GAME_LOADERS } from '../shared/content/game-loaders.generated';
 import { GAMES } from '../shared/content/games-manifest.generated';
 import { LobbyScene } from '../lobby/lobby-scene';
 import { COLORS, FONT, RADIUS, SPACE } from '../shared/design-system/tokens';
@@ -9,6 +8,7 @@ import { AnalyticsService } from '../core/analytics/analytics';
 import { AudioService } from '../core/audio/audio';
 import { CloudService } from '../core/cloud/cloud';
 import { GameRegistry } from '../core/game-registry';
+import type { GameDefinition } from '../core/types';
 import { InputService } from '../core/input/input';
 import { ProfileService } from '../core/profile';
 import { Renderer } from '../core/render/renderer';
@@ -128,12 +128,8 @@ export class App {
     this.loadingMessage = `正在进入${entry.title}`;
     platform
       .loadSubpackage(entry.packageName)
-      .then(() => {
-        const loader = GAME_LOADERS[entry.id];
-        if (!loader) throw new Error(`Game ${entry.id} has no loader`);
-        // 分包入口必须在 loadSubpackage 成功后再执行。
-        loader();
-        const definition = GameRegistry.get(entry.id);
+      .then(() => this.waitForDefinition(entry.id))
+      .then((definition) => {
         if (!definition) throw new Error(`Game ${entry.id} did not register`);
         this.loadingMessage = '';
         return this.scenes.replace(
@@ -145,6 +141,19 @@ export class App {
         this.loadingMessage = '';
         this.showNotice('加载失败，请稍后重试');
       });
+  }
+
+  // 分包根目录的 game.js 是入口文件，wx.loadSubpackage 成功后由运行时执行；
+  // 这里留几帧余量，避免个别基础库把 execute 排在 success 之后。
+  private async waitForDefinition(gameId: string): Promise<GameDefinition | undefined> {
+    for (let attempt = 0; attempt < 6; attempt += 1) {
+      const definition = GameRegistry.get(gameId);
+      if (definition) return definition;
+      await new Promise<void>((resolve) => {
+        setTimeout(resolve, 16);
+      });
+    }
+    return undefined;
   }
 
   private returnToLobby(): void {

@@ -78,7 +78,16 @@ globalThis.wx = {
   setStorageSync: () => {},
   removeStorageSync: () => {},
   clearStorageSync: () => {},
-  loadSubpackage: ({ success }) => setTimeout(success, 0),
+  // 模拟 wx.loadSubpackage：运行时下载完会自动执行分包根目录的 game.js 入口。
+  loadSubpackage: ({ name, success, fail }) => {
+    try {
+      require(path.join(dist, 'games', name, 'game.js'));
+      setTimeout(success, 0);
+    } catch (error) {
+      if (fail) fail(error);
+      else throw error;
+    }
+  },
   showModal: ({ success }) => success?.({ confirm: true, cancel: false }),
   showToast: () => {},
   shareAppMessage: () => {},

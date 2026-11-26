@@ -164,7 +164,7 @@ interface SaveEnvelope<T> {
 ## 14. 构建
 
 ```
-gen:manifest → 生成 games-manifest / game-loaders
+gen:manifest → 生成 games-manifest（大厅场馆列表）
 clean → 删除整个 dist（避免旧产物指向已移动的模块）
 tsc → dist/
 copy shared assets → dist/assets/
@@ -189,17 +189,11 @@ check-size → 主包/分包预算
 
 ## 16. 分包细节
 
-- 分包入口文件必须自行注册：
-
-  ```ts
-  GameRegistry.register(require('./game').default);
-  ```
-
-- 主包在 `wx.loadSubpackage` 成功后再执行分包入口；
-- 入口通过 `src/shared/content/game-loaders.generated.ts` 里的**字面量 require** 调用。
-  微信的模块系统不接受动态拼接路径（`require('../games/' + id + '/game')` 会报
-  `module ... is not defined`），所以由 `tools/gen-manifest.mjs` 生成静态映射；
-  新增游戏后重新 `npm run gen:manifest`（`build` 已包含）即可；
+- 分包入口是分包根目录的 `game.js`（`dist/games/<id>/game.js`），
+  由 `wx.loadSubpackage` 下载完成后**自动执行**，在模块顶层调用
+  `GameRegistry.register(definition)`；主包不 require 分包文件；
+- 注册表挂在全局（`GameGlobal`），保证主包与分包看到同一份；
+- 主包 `loadSubpackage` 成功后再从注册表取 `GameDefinition`；
 - 分包代码加载后常驻，不能卸载；
 - 分包资源路径相对于分包根；
 - 不使用独立分包；
