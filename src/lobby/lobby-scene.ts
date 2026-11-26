@@ -452,7 +452,7 @@ export class LobbyScene implements Scene {
 
     drawText(
       ctx,
-      `云服务：${this.services.cloud.status === 'online' ? '已连接' : '离线模式'}`,
+      `云服务：${this.cloudStatusText()}`,
       panel.x + 40,
       panel.y + 442,
       {
@@ -526,6 +526,17 @@ export class LobbyScene implements Scene {
   private handlePrivacyTap(x: number, y: number): void {
     if (pointInRect(x, y, this.privacyCloseRect)) {
       this.modal = 'settings';
+    }
+  }
+
+  private cloudStatusText(): string {
+    switch (this.services.cloud.status) {
+      case 'online':
+        return '已连接';
+      case 'connecting':
+        return '连接中';
+      default:
+        return this.services.cloud.hasEnv ? '未连接（检查云函数）' : '未配置环境';
     }
   }
 

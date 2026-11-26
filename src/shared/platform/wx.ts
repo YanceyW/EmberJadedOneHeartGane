@@ -142,7 +142,14 @@ export const platform = {
       wx.cloud?.init({ env, traceUser: true });
     },
     callFunction<T>(name: string, data?: Record<string, unknown>): Promise<T> {
-      return wx.cloud.callFunction({ name, data }).then((result: any) => result.result as T);
+      try {
+        // wx.cloud.callFunction 在未初始化/环境错误时会同步抛错，这里统一包成 Promise。
+        return Promise.resolve(wx.cloud.callFunction({ name, data })).then(
+          (result: any) => result.result as T,
+        );
+      } catch (error) {
+        return Promise.reject(error);
+      }
     },
   },
 };

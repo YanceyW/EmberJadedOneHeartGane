@@ -6,9 +6,14 @@ export type CloudStatus = 'offline' | 'connecting' | 'online';
 export class CloudService {
   status: CloudStatus = 'offline';
   openid = '';
+  readonly hasEnv: boolean;
+
+  constructor(hasEnv: boolean = Boolean(CLOUD_ENV)) {
+    this.hasEnv = hasEnv;
+  }
 
   async init(): Promise<void> {
-    if (!CLOUD_ENV || !platform.cloud.available()) {
+    if (!this.hasEnv || !platform.cloud.available()) {
       this.status = 'offline';
       return;
     }
