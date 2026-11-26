@@ -1,0 +1,8 @@
+node_modules/
+dist/
+coverage/
+project.private.config.json
+assets/raw/
+*.log
+.DS_Store
+.vscode/
