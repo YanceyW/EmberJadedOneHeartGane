@@ -11,7 +11,7 @@ if (fs.existsSync(entry)) {
 }
 
 console.log('[postinstall] dist/game.js missing, building once...');
-const result = spawnSync('npm', ['run', 'build'], {
+const result = spawnSync('npm run build', {
   cwd: root,
   stdio: 'inherit',
   shell: true,
