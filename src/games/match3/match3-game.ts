@@ -27,7 +27,7 @@ import {
 } from './systems/board';
 import { LEVELS, levelById, Match3Level, starsFor } from './data/levels';
 import { DAILY_MOVES, DAILY_TARGET, dailySeed } from './data/daily';
-import { Match3Save, migrateSave } from './systems/save';
+import { Match3Save, mergeSaves, migrateSave } from './systems/save';
 
 const ROWS = 6;
 const COLS = 8;
@@ -55,7 +55,7 @@ export class Match3Game implements GameInstance {
   private rng: Rng;
   private board: Board;
   private level: Match3Level;
-  private readonly saveData: Match3Save;
+  private saveData: Match3Save;
   private selected: Cell | null = null;
   private score = 0;
   private moves = 0;
@@ -96,10 +96,20 @@ export class Match3Game implements GameInstance {
 
   enter(): void {
     this.ctx.analytics.track('level_start', { game: 'match3', level: this.level.id });
+    void this.syncCloud();
   }
 
   exit(): void {
     this.save();
+    void this.syncCloud();
+  }
+
+  private async syncCloud(): Promise<void> {
+    const outcome = await this.ctx.cloudSave.syncGame('match3', this.saveData, mergeSaves);
+    if (!outcome.synced) return;
+    // 合并结果只会取更大的进度，可以直接覆盖本地。
+    this.saveData = outcome.data;
+    this.ctx.storage.set('save:match3', this.saveData);
   }
 
   update(dt: number): void {
@@ -216,6 +226,8 @@ export class Match3Game implements GameInstance {
           stars,
         });
       }
+
+      void this.submitScore();
     } else if (this.moves <= 0) {
       this.state = 'lost';
       this.ctx.analytics.track(this.daily ? 'daily_fail' : 'level_fail', {
@@ -276,6 +288,15 @@ export class Match3Game implements GameInstance {
 
   private save(): void {
     this.ctx.storage.set('save:match3', this.saveData);
+  }
+
+  private async submitScore(): Promise<void> {
+    const week = this.ctx.time.weekKey();
+    const result = await this.ctx.cloud.submitScore('match3', week, this.score, this.level.id);
+    if (result) {
+      this.flash(`本周第 ${result.rank} 名`);
+    }
+    await this.syncCloud();
   }
 
   private flash(text: string): void {

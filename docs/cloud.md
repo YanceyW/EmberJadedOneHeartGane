@@ -147,3 +147,23 @@
 
 > 环境 ID 会随客户端打包，属于公开标识，不是密钥；泄漏它不能直接读写你的数据库，
 > 真正的数据访问由云函数里的 `cloud.getWXContext().OPENID` 与数据库权限控制。
+
+## 10. 客户端接入状态
+
+| 能力 | 状态 | 说明 |
+|---|---|---|
+| `login` | ✅ | 启动静默登录，失败自动离线 |
+| `sync` 云存档 | ✅ | 王都三消进入/胜利/退出时同步；冲突按 `mergeSaves` 合并 |
+| `submitScore` | ✅ | 每次过关提交，服务端返回名次 |
+| `leaderboard` | ✅ | 大厅底部「排行榜」显示三消周榜 |
+| `config` | ⬜ | 云函数已就绪，客户端未接 |
+| `deleteAccount` | ⬜ | 云函数已就绪，客户端目前只删本地数据 |
+
+实现要点：
+
+- `CloudSaveService` 用本地 `cloud:revision:<gameId>` 记录服务端版本；
+- 同步时带 `baseRevision`，服务端发现不一致返回 `conflict` + 远端数据；
+- 客户端 `mergeSaves` 合并后再推一次，保证两边都收敛到最大进度；
+- 云失败不阻塞游戏：返回 `null`，本地照常写入，下次再试；
+- 排行榜 `type` 用 ISO 周（`TimeService.weekKey()`），天然按周重置。
+

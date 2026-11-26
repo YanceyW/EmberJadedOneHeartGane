@@ -2,6 +2,7 @@ import { AssetService } from '../assets/assets';
 import { AnalyticsService } from '../analytics/analytics';
 import { AudioService } from '../audio/audio';
 import { CloudService } from '../cloud/cloud';
+import { CloudSaveService } from '../cloud/cloud-save';
 import { InputService } from '../input/input';
 import { ProfileService } from '../profile';
 import { Renderer } from '../render/renderer';
@@ -18,6 +19,7 @@ export interface AppServices {
   assets: AssetService;
   storage: StorageService;
   cloud: CloudService;
+  cloudSave: CloudSaveService;
   analytics: AnalyticsService;
   share: ShareService;
   time: TimeService;

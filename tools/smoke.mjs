@@ -49,6 +49,8 @@ const canvas = {
 let touchStart = null;
 let touchEnd = null;
 
+const cloudCalls = [];
+
 globalThis.wx = {
   createCanvas: () => canvas,
   createImage: () => ({}),
@@ -63,6 +65,27 @@ globalThis.wx = {
     windowHeight: 812,
     pixelRatio: 2,
   }),
+  // 模拟已部署的云函数，让冒烟覆盖 登录 → 存取档 → 排行榜 整条链路。
+  cloud: {
+    init: () => {},
+    callFunction: ({ name, data }) => {
+      cloudCalls.push(name);
+      if (name === 'login') return Promise.resolve({ result: { openid: 'smoke-openid' } });
+      if (name === 'sync') return Promise.resolve({ result: { revision: 1, data: data?.data } });
+      if (name === 'submitScore') return Promise.resolve({ result: { rank: 1, best: 0 } });
+      if (name === 'leaderboard') {
+        return Promise.resolve({
+          result: {
+            entries: [
+              { rank: 1, score: 2400 },
+              { rank: 2, score: 1800 },
+            ],
+          },
+        });
+      }
+      return Promise.resolve({ result: {} });
+    },
+  },
   onTouchStart: (cb) => {
     touchStart = cb;
   },
@@ -124,17 +147,34 @@ function tap(clientX, clientY) {
   });
 }
 
-setTimeout(() => tap(100, 200), 40);
-setTimeout(() => tap(200, 250), 220);
+// 排行榜 → 关闭 → 进入三消 → 点棋盘
+setTimeout(() => tap(73, 742), 40);
+setTimeout(() => tap(187, 538), 120);
+setTimeout(() => tap(100, 200), 200);
+setTimeout(() => tap(200, 250), 380);
 
 setTimeout(() => {
-  const failed = errors.length > 0 || loggedErrors.some((line) => line.includes('openGame failed'));
+  const failed =
+    errors.length > 0 ||
+    loggedErrors.some(
+      (line) => line.includes('openGame failed') || line.includes('uncaught'),
+    );
   if (failed) {
     console.error('[smoke] failed');
     for (const error of errors) console.error(error);
     for (const line of loggedErrors) console.error(line);
     process.exit(1);
   }
-  console.log(`[smoke] ok (${frames} frames, canvas ${canvas.width}x${canvas.height})`);
+
+  for (const required of ['login', 'sync', 'leaderboard']) {
+    if (!cloudCalls.includes(required)) {
+      console.error(`[smoke] failed: cloud function "${required}" was not called`);
+      process.exit(1);
+    }
+  }
+
+  console.log(
+    `[smoke] ok (${frames} frames, canvas ${canvas.width}x${canvas.height}, cloud: ${cloudCalls.join(',')})`,
+  );
   process.exit(0);
-}, 600);
+}, 800);

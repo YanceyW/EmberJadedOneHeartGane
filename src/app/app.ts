@@ -15,6 +15,7 @@ import { Renderer } from '../core/render/renderer';
 import { createRng } from '../core/rng';
 import { GameScene } from '../core/scene/game-scene';
 import { SceneManager } from '../core/scene/scene';
+import { CloudSaveService } from '../core/cloud/cloud-save';
 import { ShareService } from '../core/share/share';
 import { StorageService } from '../core/storage/storage';
 import { TimeService } from '../core/time/time';
@@ -60,6 +61,7 @@ export class App {
       assets: new AssetService(),
       storage: this.storage,
       cloud: this.cloud,
+      cloudSave: new CloudSaveService(this.cloud, this.storage),
       analytics: new AnalyticsService(),
       share: new ShareService(),
       time: new TimeService(),

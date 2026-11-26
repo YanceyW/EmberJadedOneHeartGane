@@ -1,5 +1,6 @@
 import { GAMES, GameManifestEntry } from '../shared/content/games-manifest.generated';
 import { AppServices } from '../core/app/services';
+import { LeaderboardEntry } from '../core/cloud/cloud';
 import { Renderer } from '../core/render/renderer';
 import { Scene } from '../core/scene/scene';
 import {
@@ -46,7 +47,7 @@ export class LobbyScene implements Scene {
   private settingsRect: Rect = { x: 0, y: 0, w: 0, h: 0 };
   private starRect: Rect = { x: 0, y: 0, w: 0, h: 0 };
   private toast: Toast | null = null;
-  private modal: 'settings' | 'privacy' | null = null;
+  private modal: 'settings' | 'privacy' | 'rank' | null = null;
   private pulse = 0;
 
   private closeRect: Rect = { x: 0, y: 0, w: 0, h: 0 };
@@ -55,6 +56,10 @@ export class LobbyScene implements Scene {
   private privacyRect: Rect = { x: 0, y: 0, w: 0, h: 0 };
   private deleteRect: Rect = { x: 0, y: 0, w: 0, h: 0 };
   private privacyCloseRect: Rect = { x: 0, y: 0, w: 0, h: 0 };
+  private rankCloseRect: Rect = { x: 0, y: 0, w: 0, h: 0 };
+  private rankLoading = false;
+  private rankEntries: LeaderboardEntry[] = [];
+  private rankMessage = '';
 
   constructor(private readonly services: AppServices) {
     this.layout();
@@ -93,7 +98,7 @@ export class LobbyScene implements Scene {
 
     const navW = (width - margin * 2 - 24) / 3;
     const navY = height - safeBottom - 112;
-    const labels = ['每日委托', '收集册', '双人广场'];
+    const labels = ['排行榜', '每日委托', '收集册'];
     this.navs = labels.map((label, index) => ({
       label,
       rect: { x: margin + index * (navW + 12), y: navY, w: navW, h: 80 },
@@ -127,6 +132,7 @@ export class LobbyScene implements Scene {
 
     if (this.modal === 'settings') this.drawSettings(ctx, width, height);
     if (this.modal === 'privacy') this.drawPrivacy(ctx, width, height);
+    if (this.modal === 'rank') this.drawRank(ctx, width, height);
   }
 
   onTap(x: number, y: number): void {
@@ -136,6 +142,10 @@ export class LobbyScene implements Scene {
     }
     if (this.modal === 'privacy') {
       this.handlePrivacyTap(x, y);
+      return;
+    }
+    if (this.modal === 'rank') {
+      if (pointInRect(x, y, this.rankCloseRect)) this.modal = null;
       return;
     }
 
@@ -160,11 +170,36 @@ export class LobbyScene implements Scene {
     }
 
     for (const nav of this.navs) {
-      if (pointInRect(x, y, nav.rect)) {
+      if (!pointInRect(x, y, nav.rect)) continue;
+      if (nav.label === '排行榜') {
+        this.openRank();
+      } else {
         this.showToast(`${nav.label}即将开放`);
+      }
+      return;
+    }
+  }
+
+  private openRank(): void {
+    this.modal = 'rank';
+    this.rankEntries = [];
+    this.rankMessage = '';
+    this.rankLoading = true;
+    this.services.analytics.track('leaderboard_open', { game: 'match3' });
+
+    void this.services.cloud
+      .fetchLeaderboard('match3', this.services.time.weekKey(), 20)
+      .then((entries) => {
+      this.rankLoading = false;
+      if (!entries) {
+        this.rankMessage = this.services.cloud.online
+          ? '排行榜加载失败，稍后再试'
+          : '离线模式，排行榜暂时不可用';
         return;
       }
-    }
+      this.rankEntries = entries;
+      if (entries.length === 0) this.rankMessage = '这周还没有人上榜，去玩一局吧';
+    });
   }
 
   private drawBackground(
@@ -397,11 +432,15 @@ export class LobbyScene implements Scene {
       } else if (nav.label === '收集册') {
         drawPetal(ctx, cx, cy, 15, COLORS.petal);
       } else {
-        ctx.beginPath();
-        ctx.arc(cx - 7, cy - 2, 7, 0, Math.PI * 2);
-        ctx.arc(cx + 9, cy - 2, 7, 0, Math.PI * 2);
-        ctx.fillStyle = COLORS.lilac;
-        ctx.fill();
+        const bars = [10, 18, 26];
+        bars.forEach((height, index) => {
+          fillRoundRect(
+            ctx,
+            { x: cx - 15 + index * 12, y: cy + 14 - height, w: 8, h: height },
+            index === 2 ? COLORS.jade : COLORS.mint,
+            4,
+          );
+        });
       }
       drawText(ctx, nav.label, cx, nav.rect.y + 60, {
         size: FONT.caption,
@@ -527,6 +566,88 @@ export class LobbyScene implements Scene {
     if (pointInRect(x, y, this.privacyCloseRect)) {
       this.modal = 'settings';
     }
+  }
+
+  private drawRank(ctx: CanvasRenderingContext2D, width: number, height: number): void {
+    ctx.fillStyle = 'rgba(58,46,42,0.35)';
+    ctx.fillRect(0, 0, width, height);
+
+    const panel = { x: 75, y: height / 2 - 320, w: width - 150, h: 640 };
+    drawPanel(ctx, panel, { fill: COLORS.paper, radius: RADIUS.xl });
+
+    drawText(ctx, '排行榜', panel.x + 40, panel.y + 62, {
+      size: FONT.title,
+      weight: '700',
+      color: COLORS.ink,
+    });
+    drawText(ctx, `王都三消 · ${this.services.time.weekKey()}`, panel.x + 40, panel.y + 100, {
+      size: 18,
+      color: COLORS.inkSoft,
+    });
+
+    if (this.rankLoading) {
+      drawText(ctx, '正在加载…', width / 2, panel.y + 220, {
+        size: FONT.body,
+        color: COLORS.inkSoft,
+        align: 'center',
+      });
+    } else if (this.rankMessage) {
+      drawText(ctx, this.rankMessage, width / 2, panel.y + 220, {
+        size: FONT.body,
+        color: COLORS.inkSoft,
+        align: 'center',
+        maxWidth: panel.w - 80,
+      });
+    } else {
+      drawText(ctx, '名次', panel.x + 52, panel.y + 132, {
+        size: 18,
+        color: COLORS.inkSoft,
+        align: 'center',
+      });
+      drawText(ctx, '分数', panel.x + panel.w - 40, panel.y + 132, {
+        size: 18,
+        color: COLORS.inkSoft,
+        align: 'right',
+      });
+
+      this.rankEntries.slice(0, 10).forEach((entry, index) => {
+        const rowY = panel.y + 172 + index * 44;
+        const medal = index < 3 ? [COLORS.gold, '#C9CFD6', '#D8A47F'][index] : null;
+        if (medal) {
+          ctx.beginPath();
+          ctx.arc(panel.x + 52, rowY, 13, 0, Math.PI * 2);
+          ctx.fillStyle = medal;
+          ctx.fill();
+        }
+        drawText(ctx, `${entry.rank}`, panel.x + 52, rowY, {
+          size: FONT.caption,
+          weight: '700',
+          color: medal ? COLORS.paper : COLORS.inkSoft,
+          align: 'center',
+        });
+        drawText(ctx, `${entry.score}`, panel.x + panel.w - 40, rowY, {
+          size: FONT.subtitle,
+          weight: '700',
+          color: COLORS.jade,
+          align: 'right',
+        });
+      });
+    }
+
+    this.rankCloseRect = { x: panel.x + 40, y: panel.y + 552, w: panel.w - 80, h: 64 };
+    fillRoundRect(ctx, this.rankCloseRect, COLORS.jade, RADIUS.md);
+    drawText(
+      ctx,
+      '关闭',
+      this.rankCloseRect.x + this.rankCloseRect.w / 2,
+      this.rankCloseRect.y + 32,
+      {
+        size: FONT.subtitle,
+        color: COLORS.paper,
+        align: 'center',
+        weight: '700',
+      },
+    );
   }
 
   private cloudStatusText(): string {

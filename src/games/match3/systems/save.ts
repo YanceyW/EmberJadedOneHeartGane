@@ -25,7 +25,6 @@ export function defaultSave(): Match3Save {
 export function migrateSave(input: unknown): Match3Save {
   const save = defaultSave();
   if (!input || typeof input !== 'object') return save;
-
   const raw = input as Record<string, unknown>;
   if (typeof raw.bestScore === 'number' && Number.isFinite(raw.bestScore)) {
     save.bestScore = Math.max(0, Math.floor(raw.bestScore));
@@ -55,4 +54,31 @@ export function migrateSave(input: unknown): Match3Save {
 
   // v1/v2 只有基础进度，上面的默认值已经兼容，无需额外字段。
   return save;
+}
+
+// 云同步冲突时按「取进度更大的一方」合并：星级取高、关卡取远、当日最佳取高。
+export function mergeSaves(local: Match3Save, remote: Match3Save): Match3Save {
+  const stars: Record<string, number> = { ...remote.stars };
+  for (const [key, value] of Object.entries(local.stars)) {
+    stars[key] = Math.max(stars[key] ?? 0, value);
+  }
+
+  let dailyDate = local.dailyDate;
+  let dailyBest = local.dailyBest;
+  if (remote.dailyDate > local.dailyDate) {
+    dailyDate = remote.dailyDate;
+    dailyBest = remote.dailyBest;
+  } else if (remote.dailyDate === local.dailyDate) {
+    dailyBest = Math.max(local.dailyBest, remote.dailyBest);
+  }
+
+  return {
+    schemaVersion: 3,
+    bestScore: Math.max(local.bestScore, remote.bestScore),
+    wins: Math.max(local.wins, remote.wins),
+    unlockedLevel: Math.max(local.unlockedLevel, remote.unlockedLevel),
+    stars,
+    dailyDate,
+    dailyBest,
+  };
 }
