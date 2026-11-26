@@ -45,9 +45,13 @@ export const CLOUD_ENV = 'cloud1-d0gjkempz0f6d4ef2';
 
 1. 开发者工具左侧资源管理器展开 `cloudfunctions/`；
 2. 右键 `login` → **上传并部署：云端安装依赖（不上传 node_modules）**；
-3. 对 `sync`、`leaderboard`、`submitScore`、`config`、`deleteAccount` 重复。
+3. 对 `sync`、`leaderboard`、`submitScore`、`config`、`deleteAccount` 重复；
+4. 如果弹出环境选择，选 `cloud1-d0gjkempz0f6d4ef2`。
 
-第一次部署会安装 `wx-server-sdk`，需要等 1–2 分钟。
+第一次部署会安装 `wx-server-sdk`，每个函数约 1–2 分钟。
+
+> 服务端口关闭时 CLI 会报 `IDE service port disabled`；要开在
+> 工具 → 设置 → 安全设置 → 服务端口。不开也能用图形界面部署。
 
 ### 2.2 命令行（可选，一次部署全部）
 

@@ -536,8 +536,11 @@ export class LobbyScene implements Scene {
       case 'connecting':
         return '连接中';
       default:
-        return this.services.cloud.hasEnv ? '未连接（检查云函数）' : '未配置环境';
+        break;
     }
+    if (!this.services.cloud.hasEnv) return '未配置环境';
+    if (!platform.cloud.available()) return '当前运行环境没有 wx.cloud';
+    return '未连接（检查云函数）';
   }
 
   private drawSettingRow(
