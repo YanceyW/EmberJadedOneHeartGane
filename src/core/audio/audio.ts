@@ -88,6 +88,15 @@ export class AudioService {
     } catch {
       // ignore
     }
+
+    // iOS 等平台要求首次用户手势后才能播音频：把 BGM 也在这里补一次启动。
+    if (this.currentBgm && this.music) {
+      try {
+        void this.bgm?.play?.();
+      } catch {
+        // ignore
+      }
+    }
   }
 
   private safeCreate(factory: () => any | null): any | null {
