@@ -66,6 +66,14 @@ export class Match3Hud {
     const renderer = this.renderer;
     const width = renderer.width;
 
+    // 回到对局时清空结算面板的命中区域，避免误触到旧按钮。
+    if (state.phase === 'playing') {
+      this.bounds = { x: 0, y: 0, w: 0, h: 0 };
+      this.nextRect = { x: 0, y: 0, w: 0, h: 0 };
+      this.restartRect = { x: 0, y: 0, w: 0, h: 0 };
+      this.homeRect = { x: 0, y: 0, w: 0, h: 0 };
+    }
+
     drawPanel(ctx, this.backRect, { fill: COLORS.paper, radius: RADIUS.md });
     drawText(ctx, '返回', this.backRect.x + this.backRect.w / 2, this.backRect.y + 32, {
       size: FONT.caption,
