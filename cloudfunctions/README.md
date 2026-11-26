@@ -37,13 +37,7 @@ export const CLOUD_ENV = 'cloud1-d0gjkempz0f6d4ef2';
 
 ### 1.4 建索引（排行榜需要）
 
-`scores` 集合新建组合索引：
-
-```
-gameId(升序) + type(升序) + score(降序)
-```
-
-不建索引时 `leaderboard` 的 `where + orderBy` 会报错或很慢。
+见下文 [§3 建索引](#3-建索引排行榜)，`scores` 上添加 `gameId_type_score`。
 
 ## 2. 部署云函数
 
@@ -84,14 +78,35 @@ D:\Program Files (x86)\WeChatDevelopTool\微信web开发者工具\cli.bat
 
 > `--remote-npm-install` 等价于图形界面的「云端安装依赖」，不会上传本地 `node_modules`。
 
-## 3. 验证
+## 3. 建索引（排行榜）
+
+云开发控制台 → 数据库 → `scores` → 索引管理 → 添加索引：
+
+| 字段 | 值 |
+|---|---|
+| 索引名称 | `gameId_type_score` |
+| 索引属性 | 非唯一 |
+| 索引字段 | `gameId` 升序、`type` 升序、`score` 降序 |
+
+`leaderboard` 的 `where + orderBy` 与 `submitScore` 的计数查询都依赖它。
+系统自带的 `_openid_1`、`_id_` 保持不动。
+
+为什么需要：
+
+- `leaderboard` 是 `where({ gameId, type }).orderBy('score', 'desc')`，
+  没有组合索引时排序会被拒绝、或只能扫描很少的数据；
+- `submitScore` 里 `where({ gameId, type, score: _.gt(score) }).count()` 也走这条索引。
+
+保存后索引是异步构建的，列表里出现该索引即完成；`命中次数` 要等到真正查询后才会增长。
+
+## 4. 验证
 
 1. 重新编译项目；
-2. 大厅 → 设置 → 底部应显示「云服务：已连接」；
-3. 若显示「离线模式」，看控制台是否有云函数报错，或环境 ID 是否填对；
-4. 云开发控制台 → 云函数 → 日志，能看到 `login` 调用记录。
+2. 大厅 → 设置 → 底部「云服务」应显示「已连接」；
+3. 若显示「未连接（检查云函数）」，去云开发控制台 → 云函数 → 日志看 `login` 报错；
+4. 首次登录成功后，`players` 集合会出现一条 `_id = openid` 的记录。
 
-## 4. 函数说明
+## 5. 函数说明
 
 | 函数 | 作用 | 备注 |
 |---|---|---|
@@ -102,7 +117,7 @@ D:\Program Files (x86)\WeChatDevelopTool\微信web开发者工具\cli.bat
 | `config` | 返回远程配置 | `config/global` 文档不存在时返回空 |
 | `deleteAccount` | 删除 `players`/`saves`/`scores` | 对应「删除我的数据」 |
 
-## 5. 注意
+## 6. 注意
 
 - 客户端不存任何密钥；`openid` 只从 `cloud.getWXContext()` 取。
 - 云函数改动后必须重新部署，`dist` 里的客户端代码不含云函数逻辑。

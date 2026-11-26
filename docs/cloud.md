@@ -135,7 +135,7 @@
 1. 开发者工具点「云开发」→ 开通 → 创建环境，记下环境 ID；
 2. 把环境 ID 填入 `src/config.ts` 的 `CLOUD_ENV`，`npm run build`；
 3. 数据库建集合 `players` / `saves` / `scores` / `config`，权限选「仅创建者可读写」；
-4. `scores` 建组合索引 `gameId + type + score(desc)`；
+4. `scores` → 索引管理 → 添加索引 `gameId_type_score`（非唯一，`gameId` 升序 + `type` 升序 + `score` 降序）；
 5. 右键每个云函数 → 上传并部署：云端安装依赖；
 6. 重新编译，大厅 → 设置 → 底部「云服务」状态：
    - `已连接`：登录云函数返回了 openid；
