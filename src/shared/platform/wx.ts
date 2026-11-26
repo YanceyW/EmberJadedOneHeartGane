@@ -4,6 +4,8 @@ export interface WindowMetrics {
   pixelRatio: number;
   safeTop: number;
   safeBottom: number;
+  /** 微信原生胶囊底部（客户端坐标），用于避免自绘 UI 压住「更多游戏」/胶囊。 */
+  capsuleBottom?: number;
 }
 
 export interface TapPoint {
@@ -26,12 +28,24 @@ export const platform = {
     const height = info.windowHeight ?? info.screenHeight ?? 667;
     const pixelRatio = Math.min(info.pixelRatio ?? 2, 3);
     const safeArea = info.safeArea;
+    let capsuleBottom = safeArea ? safeArea.top : 20;
+    try {
+      if (typeof wx.getMenuButtonBoundingClientRect === 'function') {
+        const rect = wx.getMenuButtonBoundingClientRect();
+        if (rect && Number.isFinite(rect.bottom)) {
+          capsuleBottom = Math.max(capsuleBottom, rect.bottom);
+        }
+      }
+    } catch {
+      // 部分环境/工具链没有胶囊信息，回退到安全区顶部。
+    }
     return {
       width,
       height,
       pixelRatio,
       safeTop: safeArea ? safeArea.top : 20,
       safeBottom: safeArea ? Math.max(0, height - safeArea.bottom) : 0,
+      capsuleBottom,
     };
   },
 

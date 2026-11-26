@@ -33,10 +33,7 @@ export function migrateSave(input: unknown): Match3Save {
     save.wins = Math.max(0, Math.floor(raw.wins));
   }
   if (typeof raw.unlockedLevel === 'number' && Number.isFinite(raw.unlockedLevel)) {
-    save.unlockedLevel = Math.min(
-      LEVELS.length,
-      Math.max(1, Math.floor(raw.unlockedLevel)),
-    );
+    save.unlockedLevel = Math.min(LEVELS.length, Math.max(1, Math.floor(raw.unlockedLevel)));
   }
   if (raw.stars && typeof raw.stars === 'object') {
     for (const [key, value] of Object.entries(raw.stars as Record<string, unknown>)) {

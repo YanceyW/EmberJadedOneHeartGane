@@ -46,6 +46,10 @@ const ATLAS_IDS: SpriteId[] = [
   'p-coin',
   'p-sugar',
   'p-ring',
+  'p-leaf',
+  'p-firefly',
+  'p-splash',
+  'p-smoke',
 ];
 
 export class App {
@@ -67,6 +71,7 @@ export class App {
   private paused = false;
   private lastTick = 0;
   private lastFrameMs = 0;
+  private lastParticleBudget = -1;
 
   constructor() {
     this.quality = new QualityService(platform.getMetrics());
@@ -87,8 +92,16 @@ export class App {
     this.audio.setMusic(settings.music);
     this.audio.setSfx(settings.sfx);
     this.audio.setMaxVoices(this.quality.profile.sfxVoices);
-    this.haptics.setEnabled(settings.haptics);
-    this.quality.setPreference(settings.reducedMotion ? 'reduced' : 'auto');
+    this.haptics.setEnabled(settings.haptics && !settings.reducedMotion);
+    this.quality.setPreference(
+      settings.reducedMotion ? 'reduced' : settings.performanceMode ? 'low' : settings.quality,
+    );
+    this.quality.setEffects({
+      ambientEffects: settings.ambientEffects && !settings.performanceMode,
+      sceneMotion: settings.sceneMotion && !settings.performanceMode,
+      textureDetail: settings.textureDetail && !settings.performanceMode,
+      screenShake: settings.screenShake && !settings.performanceMode,
+    });
     platform.setInnerAudioOption(true);
 
     const feedback = createFeedback({
@@ -124,8 +137,29 @@ export class App {
 
     this.services = services;
 
+    // 首次触摸就解锁音频：纯滑动玩法不会产生 tap，不能等到 touchend。
+    this.input.onPress((point) => {
+      this.audio.unlock();
+      if (this.loadingMessage) return;
+      this.scenes.press(point);
+    });
+    this.input.onDrag((point) => {
+      if (this.loadingMessage) return;
+      this.scenes.drag(point);
+    });
+    this.input.onRelease((point) => {
+      if (this.loadingMessage) return;
+      this.scenes.release(point);
+    });
+    this.input.onSwipe((event) => {
+      if (this.loadingMessage) return;
+      this.scenes.swipe(event);
+    });
+    this.input.onPinch((event) => {
+      if (this.loadingMessage) return;
+      this.scenes.pinch(event);
+    });
     this.input.onTap((point) => {
-      // 首次触摸解锁音频，之后才允许出声。
       this.audio.unlock();
       if (this.loadingMessage) return;
       this.scenes.tap(point.x, point.y);
@@ -146,7 +180,11 @@ export class App {
   }
 
   start(): void {
-    void this.cloud.init();
+    const localName = this.profile.get().displayName;
+    void this.cloud.init(localName).then(() => {
+      // 云端名字是唯一事实来源；离线时保留本地名字继续玩。
+      if (this.cloud.displayName) this.profile.setDisplayName(this.cloud.displayName, true);
+    });
     void this.scenes.replace(new LobbyScene(this.services));
     // 大厅 BGM：mp3 未打包时静默失败，不影响启动。
     this.audio.playBgm('lobby');
@@ -168,6 +206,11 @@ export class App {
 
     if (!this.paused) {
       this.quality.reportFrame(dt * 1000);
+      const budget = this.quality.particleBudget;
+      if (budget !== this.lastParticleBudget) {
+        this.lastParticleBudget = budget;
+        this.particles.setBudget(budget);
+      }
       this.scenes.update(dt);
       this.particles.update(dt);
       this.renderer.beginFrame();

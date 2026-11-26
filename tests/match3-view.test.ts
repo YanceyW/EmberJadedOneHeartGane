@@ -2,11 +2,7 @@ import { describe, expect, it, vi } from 'vitest';
 import { TweenManager } from '../src/core/anim/tween';
 import { createRng } from '../src/core/rng';
 import { BoardView } from '../src/games/match3/view/board-view';
-import {
-  createBoard,
-  resolveWithReport,
-  swapCells,
-} from '../src/games/match3/systems/board';
+import { createBoard, resolveWithReport, swapCells } from '../src/games/match3/systems/board';
 import type { SpriteAtlas } from '../src/shared/design-system/sprite-atlas';
 
 function makeView(): { view: BoardView; tweens: TweenManager } {
@@ -39,7 +35,16 @@ describe('board view orchestration', () => {
 
     const steps: number[] = [];
     const onDone = vi.fn();
-    view.beginMove(pre, { r: 0, c: 0 }, { r: 0, c: 1 }, report, board, () => {}, (step) => steps.push(step.index), onDone);
+    view.beginMove(
+      pre,
+      { r: 0, c: 0 },
+      { r: 0, c: 1 },
+      report,
+      board,
+      () => {},
+      (step) => steps.push(step.index),
+      onDone,
+    );
 
     expect(view.isBusy).toBe(true);
     advance(tweens, view);
@@ -54,12 +59,62 @@ describe('board view orchestration', () => {
     const board = createBoard(6, 8, 5, createRng(8));
     view.setBoard(board);
 
-    const onDone = vi.fn();
-    view.playInvalid({ r: 0, c: 0 }, { r: 0, c: 1 }, onDone);
+    view.playInvalid({ r: 0, c: 0 }, { r: 0, c: 1 });
     advance(tweens, view);
 
-    expect(onDone).toHaveBeenCalledTimes(1);
     expect(view.isBusy).toBe(false);
+    expect(view.pressCell).toBeNull();
+  });
+
+  it('plays the intro drop and releases input when finished', () => {
+    const { view, tweens } = makeView();
+    const board = createBoard(6, 8, 5, createRng(12));
+    view.setBoard(board);
+
+    view.playIntro();
+    expect(view.isBusy).toBe(true);
+    for (let i = 0; i < 40 && view.isBusy; i += 1) {
+      view.update(1 / 60);
+    }
+    advance(tweens, view);
+
+    expect(view.isBusy).toBe(false);
+  });
+
+  it('nudges an out-of-bounds swipe back to idle', () => {
+    const { view, tweens } = makeView();
+    view.setBoard(createBoard(6, 8, 5, createRng(19)));
+    view.playNudge({ r: 0, c: 0 }, 'up');
+    expect(view.isBusy).toBe(true);
+    advance(tweens, view);
+    expect(view.isBusy).toBe(false);
+  });
+
+  it('skips the intro when reduced motion is on', () => {
+    const { view } = makeView();
+    view.setBoard(createBoard(6, 8, 5, createRng(17)));
+    view.setReducedMotion(true);
+    view.playIntro();
+    expect(view.isBusy).toBe(false);
+  });
+
+  it('tracks press, swipe guide and score popups, then clears them', () => {
+    const { view } = makeView();
+    const board = createBoard(6, 8, 5, createRng(31));
+    view.setBoard(board);
+
+    view.setPress({ r: 2, c: 3 });
+    view.showSwipeGuide({ r: 2, c: 3 }, 'right');
+    view.showScore('+35', 100, 100, '#2F8F7B');
+
+    expect(view.pressCell).toEqual({ r: 2, c: 3 });
+    expect(view.hasGuide).toBe(true);
+    expect(view.popupCount).toBe(1);
+
+    view.skipAll();
+    expect(view.pressCell).toBeNull();
+    expect(view.hasGuide).toBe(false);
+    expect(view.popupCount).toBe(0);
   });
 
   it('skipAll settles immediately and clears busy', () => {
@@ -73,7 +128,16 @@ describe('board view orchestration', () => {
     const pre = board.map((row) => [...row]);
     swapCells(board, { r: 0, c: 0 }, { r: 0, c: 1 });
     const report = resolveWithReport(board, 5, createRng(2));
-    view.beginMove(pre, { r: 0, c: 0 }, { r: 0, c: 1 }, report, board, () => {}, () => {}, () => {});
+    view.beginMove(
+      pre,
+      { r: 0, c: 0 },
+      { r: 0, c: 1 },
+      report,
+      board,
+      () => {},
+      () => {},
+      () => {},
+    );
 
     view.skipAll();
     expect(view.isBusy).toBe(false);
@@ -85,12 +149,7 @@ describe('board view orchestration', () => {
     view.setBoard(board);
 
     const onDone = vi.fn();
-    view.playResolve(
-      { steps: [], cleared: 0, cascades: 0, score: 0 },
-      board,
-      () => {},
-      onDone,
-    );
+    view.playResolve({ steps: [], cleared: 0, cascades: 0, score: 0 }, board, () => {}, onDone);
 
     expect(onDone).toHaveBeenCalledTimes(1);
     expect(view.isBusy).toBe(false);

@@ -11,10 +11,10 @@
 
 | 函数 | 职责 | 输入 | 输出 |
 |---|---|---|---|
-| `login` | 获取 openid / 初始化玩家 | `{}` | `{ openid, isNew }` |
+| `login` | 获取 openid / 初始化玩家 / 分配唯一名字 | `{ preferredName?, forceName? }` | `{ openid, isNew, displayName }` |
 | `sync` | 拉取/上传存档 | `{ gameId, baseRevision, data }` | `{ revision, data, conflict? }` |
-| `leaderboard` | 排行榜 | `{ gameId, type, limit }` | `{ entries }` |
-| `submitScore` | 提交分数 | `{ gameId, score, seed, proof? }` | `{ rank, best }` |
+| `leaderboard` | 按游戏分类的最高分排行榜 | `{ gameId, limit }` | `{ entries }` |
+| `submitScore` | 提交分数（只保留最高分） | `{ gameId, score, seed, displayName?, proof? }` | `{ rank, best }` |
 | `config` | 远程配置 | `{ version }` | `{ config, version }` |
 | `deleteAccount` | 删除数据 | `{}` | `{ ok }` |
 
@@ -28,9 +28,14 @@
   "createdAt": 0,
   "lastLoginAt": 0,
   "prosperity": 0,
+  "displayName": "王都居民-桃酥",
+  "nameClaimed": true,
   "flags": {}
 }
 ```
+
+展示名直接存在 `players.displayName`，不额外建名字集合。`login` 在分配名字时查询
+`players` 是否已被占用；改名复用 `login` 的 `forceName`，不新增云函数。
 
 ### `saves`
 
@@ -49,15 +54,18 @@
 
 ```json
 {
-  "_id": "auto",
+  "_id": "openid_gameId",
   "openid": "...",
   "gameId": "match3",
-  "type": "weekly",
   "score": 1234,
+  "name": "王都居民-桃酥",
   "seed": 42,
-  "createdAt": 0
+  "updatedAt": 0
 }
 ```
+
+每个玩家每款游戏只保留一条记录，`submitScore` 只有更高分才覆盖。
+`leaderboard` 按 `score` 倒序返回 `{ rank, score, name }`，不返回 openid。
 
 ### `config`
 
@@ -135,7 +143,7 @@
 1. 开发者工具点「云开发」→ 开通 → 创建环境，记下环境 ID；
 2. 把环境 ID 填入 `src/config.ts` 的 `CLOUD_ENV`，`npm run build`；
 3. 数据库建集合 `players` / `saves` / `scores` / `config`，权限选「仅创建者可读写」；
-4. `scores` → 索引管理 → 添加索引 `gameId_type_score`（非唯一，`gameId` 升序 + `type` 升序 + `score` 降序）；
+4. `scores` → 索引管理 → 添加索引 `gameId_score`（非唯一，`gameId` 升序 + `score` 降序）；
 5. 右键每个云函数 → 上传并部署：云端安装依赖；
 6. 重新编译，大厅 → 设置 → 底部「云服务」状态：
    - `已连接`：登录云函数返回了 openid；
@@ -154,8 +162,8 @@
 |---|---|---|
 | `login` | ✅ | 启动静默登录，失败自动离线 |
 | `sync` 云存档 | ✅ | 王都三消进入/胜利/退出时同步；冲突按 `mergeSaves` 合并 |
-| `submitScore` | ✅ | 每次过关提交，服务端返回名次 |
-| `leaderboard` | ✅ | 大厅底部「排行榜」显示三消周榜 |
+| `submitScore` | ✅ | 每次过关提交，服务端只保留该玩家该游戏的最高分 |
+| `leaderboard` | ✅ | 大厅底部「排行榜」按游戏分类显示最高分榜（当前三消有数据） |
 | `config` | ⬜ | 云函数已就绪，客户端未接 |
 | `deleteAccount` | ⬜ | 云函数已就绪，客户端目前只删本地数据 |
 
@@ -165,5 +173,5 @@
 - 同步时带 `baseRevision`，服务端发现不一致返回 `conflict` + 远端数据；
 - 客户端 `mergeSaves` 合并后再推一次，保证两边都收敛到最大进度；
 - 云失败不阻塞游戏：返回 `null`，本地照常写入，下次再试；
-- 排行榜 `type` 用 ISO 周（`TimeService.weekKey()`），天然按周重置。
+- 排行榜是历史最高分榜；同一玩家不会因多次游玩重复占位。
 

@@ -10,6 +10,7 @@ export class Renderer {
   readonly dpr: number;
   readonly safeTop: number;
   readonly safeBottom: number;
+  readonly capsuleBottom: number;
   readonly metrics: WindowMetrics;
 
   constructor(metrics: WindowMetrics = platform.getMetrics(), maxDpr = 3) {
@@ -27,6 +28,7 @@ export class Renderer {
     this.height = this.metrics.height / this.scale;
     this.safeTop = this.metrics.safeTop / this.scale;
     this.safeBottom = this.metrics.safeBottom / this.scale;
+    this.capsuleBottom = (this.metrics.capsuleBottom ?? this.metrics.safeTop) / this.scale;
 
     this.ctx.imageSmoothingEnabled = true;
   }

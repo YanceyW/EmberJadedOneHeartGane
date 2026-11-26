@@ -35,6 +35,16 @@ export class Feedback {
     if (this.reduced) return;
   }
 
+  /** 按下棋盘格：比 tap 更轻，滑动开局不吵。 */
+  press(): void {
+    this.deps.audio.playSfx('select', { volume: 0.5 });
+  }
+
+  /** 倒计时最后 10 秒的秒针提示。 */
+  tick(): void {
+    this.deps.audio.playSfx('tick', { volume: 0.6 });
+  }
+
   /** 非法操作：低音 + 极轻震动，不做红屏。 */
   invalid(x?: number, y?: number): void {
     this.deps.audio.playSfx('invalid');
@@ -44,14 +54,19 @@ export class Feedback {
     }
   }
 
-  /** 消除：音高随连击递增，粒子按连击放大。 */
-  match(comboIndex: number, x?: number, y?: number): void {
-    const step = Math.min(Math.max(comboIndex - 1, 0), 6);
+  /**
+   * 消除：音高随连锁递增；tempoStep 是跨操作的节奏档位（1–6），
+   * 与连锁叠加后封顶 +12 半音，粒子同步放大。
+   */
+  match(comboIndex: number, x?: number, y?: number, tempoStep = 1): void {
+    const cascade = Math.min(Math.max(comboIndex - 1, 0), 6);
+    const tempo = Math.min(Math.max(tempoStep - 1, 0), 5);
+    const pitch = Math.min(12, (cascade + tempo) * 2);
     const name = comboIndex > 1 ? 'combo' : 'match';
-    this.deps.audio.playSfx(name, { pitch: step * 2 });
+    this.deps.audio.playSfx(name, { pitch });
     this.deps.haptics.light();
     if (x === undefined || y === undefined || this.reduced) return;
-    this.burst('sparkle', x, y, Math.min(1 + step * 0.15, 2));
+    this.burst('sparkle', x, y, Math.min(1 + cascade * 0.15 + tempo * 0.12, 2.2));
   }
 
   pop(x: number, y: number): void {

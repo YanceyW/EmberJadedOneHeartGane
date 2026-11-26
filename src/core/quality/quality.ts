@@ -11,6 +11,13 @@ export interface QualityProfile {
   allowShake: boolean;
 }
 
+export interface EffectSettings {
+  ambientEffects: boolean;
+  sceneMotion: boolean;
+  textureDetail: boolean;
+  screenShake: boolean;
+}
+
 const PROFILES: Record<QualityTier, QualityProfile> = {
   high: { tier: 'high', particleBudget: 400, maxDpr: 3, sfxVoices: 6, allowShake: true },
   mid: { tier: 'mid', particleBudget: 240, maxDpr: 2, sfxVoices: 5, allowShake: true },
@@ -21,6 +28,12 @@ export class QualityService {
   private current: QualityTier = 'mid';
   private preference: QualityPreference = 'auto';
   private slowFrames = 0;
+  private effects: EffectSettings = {
+    ambientEffects: true,
+    sceneMotion: true,
+    textureDetail: true,
+    screenShake: true,
+  };
   reducedMotion = false;
 
   constructor(metrics: WindowMetrics) {
@@ -76,5 +89,31 @@ export class QualityService {
   get particleBudget(): number {
     if (this.reducedMotion) return 0;
     return this.profile.particleBudget;
+  }
+
+  get effectSettings(): EffectSettings {
+    return this.effects;
+  }
+
+  setEffects(patch: Partial<EffectSettings>): void {
+    this.effects = { ...this.effects, ...patch };
+  }
+
+  /** 首页环境粒子单独限额，避免和点击爆发抢光预算。 */
+  get lobbyParticleBudget(): number {
+    if (this.reducedMotion || !this.effects.ambientEffects) return 0;
+    return Math.round(this.profile.particleBudget * 0.4);
+  }
+
+  get allowSceneMotion(): boolean {
+    return !this.reducedMotion && this.effects.sceneMotion;
+  }
+
+  get allowTextureDetail(): boolean {
+    return !this.reducedMotion && this.effects.textureDetail;
+  }
+
+  get allowScreenShake(): boolean {
+    return !this.reducedMotion && this.effects.screenShake && this.profile.allowShake;
   }
 }

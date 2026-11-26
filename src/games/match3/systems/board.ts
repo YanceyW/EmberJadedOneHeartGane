@@ -216,7 +216,5 @@ export function createBoard(rows: number, cols: number, colors: number, rng: Rng
     if (hasPossibleMove(board)) return board;
   }
 
-  return Array.from({ length: rows }, () =>
-    Array.from({ length: cols }, () => rng.int(colors)),
-  );
+  return Array.from({ length: rows }, () => Array.from({ length: cols }, () => rng.int(colors)));
 }

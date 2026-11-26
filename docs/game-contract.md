@@ -39,6 +39,11 @@ export interface GameInstance {
   resume?(): void;
   getSnapshot?(): GameSnapshot;
   restoreSnapshot?(s: GameSnapshot): void;
+  onTap?(x: number, y: number): void;
+  onPress?(point: PointerPoint): void;
+  onDrag?(point: PointerPoint): void;
+  onRelease?(point: PointerPoint): void;
+  onSwipe?(event: SwipeEvent): void;
 }
 ```
 
@@ -173,16 +178,17 @@ export interface DuoModeDefinition {
 `GameContext` 已提供：
 
 ```ts
-feedback.tap()                       // 点击
-feedback.select()                    // 选中
-feedback.invalid(x?, y?)             // 非法操作（低音 + 轻震，不做红屏）
-feedback.match(comboIndex, x?, y?)   // 消除，音高随连击递增
-feedback.pop(x, y)                   // 气泡/合成
-feedback.drop(x, y)                  // 落地
-feedback.reward(x?, y?) / coin(x, y) // 奖励
-feedback.win(x?, y?) / fail()        // 结算
-feedback.transition()                // 场景切换
-feedback.burst(kind, x, y, scale?)   // 指定位置的粒子
+feedback.tap()                              // 点击
+feedback.select() / press()                 // 选中 / 按下
+feedback.invalid(x?, y?)                    // 非法操作（低音 + 轻震，不做红屏）
+feedback.match(comboIndex, x?, y?, tempo?)  // 消除，音高随连锁 + 节奏递增
+feedback.pop(x, y)                          // 气泡/合成
+feedback.drop(x, y)                         // 落地
+feedback.reward(x?, y?) / coin(x, y)        // 奖励
+feedback.win(x?, y?) / fail()               // 结算
+feedback.tick()                             // 倒计时最后 10 秒
+feedback.transition()                       // 场景切换
+feedback.burst(kind, x, y, scale?)          // 指定位置的粒子
 ```
 
 规则：
@@ -192,7 +198,8 @@ feedback.burst(kind, x, y, scale?)   // 指定位置的粒子
 - 粒子只用 `BURSTS` 的 8 个预设；
 - 任何动画都必须能被 `tweens.skipAll()` 立刻结算；
 - 「减少动效」开启时不得有粒子与震动；
-- 无音频能力时静默降级。
+- 纯手势玩法必须在 `touchstart` 解锁音频（`App` 已统一处理），不能依赖 `onTap`；
+- 无音频能力 / 缺 BGM 资源时静默降级，不得阻塞玩法。
 
 **验收**：新游戏如果没实现 tap / invalid / success / reward / fail 五类反馈，不算完成。
 

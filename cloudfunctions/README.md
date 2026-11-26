@@ -28,16 +28,16 @@ export const CLOUD_ENV = 'cloud1-d0gjkempz0f6d4ef2';
 
 | 集合 | 用途 |
 |---|---|
-| `players` | 玩家（`_id` = openid） |
+| `players` | 玩家（`_id` = openid，含唯一 `displayName`） |
 | `saves` | 存档（`_id` = `openid_gameId`） |
-| `scores` | 分数 |
+| `scores` | 每个玩家每款游戏一条最高分（`_id` = `openid_gameId`） |
 | `config` | 远程配置（手动建 `_id = global` 的文档） |
 
-权限建议：四个集合都选「仅创建者可读写」，读写全部经云函数，客户端不直连。
+权限建议：所有集合都选「仅创建者可读写」，读写全部经云函数，客户端不直连。
 
 ### 1.4 建索引（排行榜需要）
 
-见下文 [§3 建索引](#3-建索引排行榜)，`scores` 上添加 `gameId_type_score`。
+见下文 [§3 建索引](#3-建索引排行榜)，`scores` 上添加 `gameId_score`。
 
 ## 2. 部署云函数
 
@@ -88,18 +88,24 @@ D:\Program Files (x86)\WeChatDevelopTool\微信web开发者工具\cli.bat
 
 | 字段 | 值 |
 |---|---|
-| 索引名称 | `gameId_type_score` |
+| 索引名称 | `gameId_score` |
 | 索引属性 | 非唯一 |
-| 索引字段 | `gameId` 升序、`type` 升序、`score` 降序 |
+| 索引字段 | `gameId` 升序、`score` 降序 |
 
 `leaderboard` 的 `where + orderBy` 与 `submitScore` 的计数查询都依赖它。
 系统自带的 `_openid_1`、`_id_` 保持不动。
 
 为什么需要：
 
-- `leaderboard` 是 `where({ gameId, type }).orderBy('score', 'desc')`，
+- `leaderboard` 是 `where({ gameId }).orderBy('score', 'desc')`，
   没有组合索引时排序会被拒绝、或只能扫描很少的数据；
-- `submitScore` 里 `where({ gameId, type, score: _.gt(score) }).count()` 也走这条索引。
+- `submitScore` 里 `where({ gameId, score: _.gt(best) }).count()` 也走这条索引。
+
+> 从旧版本升级时，历史 `scores` 可能包含 `type` 字段或同一玩家的多条记录。
+> 新代码会按玩家去重取最高分，旧记录不影响展示；确认无需回溯后可手动清理。
+
+名字分配会按 `displayName` 查询 `players`。玩家数量较大时，可给 `players.displayName`
+加一个非唯一升序索引，避免扫描整张表；不需要额外集合。
 
 保存后索引是异步构建的，列表里出现该索引即完成；`命中次数` 要等到真正查询后才会增长。
 
@@ -114,10 +120,10 @@ D:\Program Files (x86)\WeChatDevelopTool\微信web开发者工具\cli.bat
 
 | 函数 | 作用 | 备注 |
 |---|---|---|
-| `login` | 返回 openid，首次登录建 `players` 文档 | 客户端静默调用，不弹授权 |
+| `login` | 返回 openid，首次登录建 `players` 文档并分配唯一名字 | 客户端静默调用；改名复用此函数 |
 | `sync` | 存档拉取/上传，带 `revision` 冲突检测 | 客户端先写本地，再异步同步 |
-| `leaderboard` | 排行榜查询 | 需要组合索引 |
-| `submitScore` | 提交分数并返回名次 | 服务端做范围校验 |
+| `leaderboard` | 排行榜查询 | 需要组合索引；每个玩家只取最高分 |
+| `submitScore` | 提交分数并返回名次 | 只保留该玩家该游戏的最高分 |
 | `config` | 返回远程配置 | `config/global` 文档不存在时返回空 |
 | `deleteAccount` | 删除 `players`/`saves`/`scores` | 对应「删除我的数据」 |
 

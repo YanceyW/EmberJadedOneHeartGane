@@ -4,12 +4,13 @@
 
 ## 1. 风格
 
-**奶油童话 + 手账质感 + Q 版圆润**
+**奶油纸雕 + 手账质感 + Q 版圆润**
 
 - 奶油白底、薄荷/翡翠主色、蜜桃/暖金强调、浅紫辅助；
-- 圆角厚描边、左上暖光、3 阶明暗；
+- 圆角厚描边、平涂三阶色、叠纸阴影、左上暖光；
 - 不写实、不赛博、不暗黑、不恐怖；
-- 角色 2.5 头身，吉祥物 2 头身。
+- 角色 2 头身 Q 版，吉祥物 2 头身；
+- 静态场景按昼夜阶段烘焙，动态只叠加轻量元素。
 
 ## 2. 颜色 token
 
@@ -27,6 +28,33 @@
 | `gold` | `#F2C14E` | 奖励/货币 |
 | `lilac` | `#C9B6E4` | 辅助 |
 | `sky` | `#BFE3F2` | 水/天空 |
+
+方块/图标暗部（只用于侧边、内阴影、描边，不单独做主题色）：
+
+| token | 值 |
+|---|---|
+| `mintDeep` | `#74BFA6` |
+| `honeyDeep` | `#B9862F` |
+| `waterDeep` | `#5FA3BC` |
+| `lilacDeep` | `#9B87BE` |
+| `petalDeep` | `#C9768F` |
+| `dusk` | `#F7B98E` |
+| `nightSky` | `#4C537D` |
+| `nightDeep` | `#2F3557` |
+| `starlight` | `#FFF3C4` |
+| `grass` | `#B7E3B0` |
+| `grassDeep` | `#8CCB8A` |
+| `path` | `#F4E6CF` |
+| `pathDeep` | `#DCC9AB` |
+| `skin` | `#FFE0C2` |
+| `skinShade` | `#F4C9A6` |
+| `blush` | `#F08C7E` |
+
+大厅专用色分三组，避免场景自造颜色：
+
+- `TOWN_COLORS`：土壤/石头/玻璃/木头/远山/夜地面；
+- `TOWN_PHASES`：`dawn / day / dusk / night` 四套天空、草地、道路、屋顶、窗光、灯光；
+- `PAPER_UI`：缝线、纸边、颗粒、阴影、胶带。
 
 每款游戏只加一个 accent：
 
@@ -50,7 +78,27 @@
 - 圆角：8 / 12 / 16 / 24；
 - 卡片：圆角 16 + 2px 描边 + 轻阴影；
 - 按钮：圆角 12 或胶囊；
-- 图标：24/32/48 网格，圆头端点，统一视觉重量。
+- 图标：24/32/40/48 网格，圆头端点，统一视觉重量；
+- 纸雕三步：平涂底色 → 同色系暗部/亮部 → 暖色墨线与偏移阴影。
+
+### 3.1 程序化笔刷
+
+`shared/design-system/paint.ts` 是纸雕画法的唯一入口：
+
+| API | 作用 |
+|---|---|
+| `tracePath` / `fillPoints` | 固定 seed 的轻微抖动路径 |
+| `inkLine` / `inkRoundRect` / `inkEllipse` | 带暖色墨线的形状 |
+| `strokeInk` | 单层或双层描边（默认单层） |
+| `softShadow` | 暖棕偏移软阴影 |
+| `roundRectPoints` | 顺时针圆角矩形路径（避免自交） |
+| `applyGrainToOpaque` / `drawPaperGrain` | 纸纹叠加 |
+
+规则：
+
+- 抖动必须用固定 seed，同一形状每帧一致；
+- 纸纹只烘焙，不每帧重绘；
+- 不在 UI 层直接写 `ctx.strokeStyle = '#...'`，颜色从 token 取。
 
 ## 4. 间距/布局
 
@@ -80,6 +128,18 @@
 - ScrollView / Grid / Carousel；
 - Toggle / Slider / Stepper；
 - EmptyState / Loading / ErrorState。
+
+### 6.1 纸雕组件
+
+`shared/design-system/paper-ui.ts` 提供大厅与后续页面共用的纸雕组件：
+
+- `drawPaperPanel`：纸面板、卡片、可选缝线；
+- `drawStickerButton`：primary / secondary / ghost / icon，胶囊或圆角；
+- `drawWoodRibbon`：木牌标签、状态条；
+- `drawPillToggle`：纸雕开关；
+- `drawSegmented` / `segmentRects`：分段标签（声音/画面/数据）；
+- `drawSettingRow`：设置行（标题 + 说明 + 右侧控件）；
+- `drawTapeNote` / `drawDivider`：胶带便签、虚线分隔。
 
 所有组件：
 
@@ -117,8 +177,13 @@
 
 - 统一线性+面性混合；
 - 圆头端点；
-- 24/32/48 三档；
+- 24/32/40/48 四档；
 - 同一视觉重量；
+- **纯 2D 平面**：不做挤出侧边、不做透视、不加 2.5D 厚度；
+- 2.5D 只用于玩法表现层（侧边/阴影/挤压）与大厅的深度排序/视差，图标本身保持扁平；
+- 大厅建筑用世界坐标包围盒命中，玩法棋盘仍是正视矩形网格；
+- 四款场馆图标统一在 `src/lobby/game-icons.ts` 绘制，只用 token 颜色与 2–3px 描边；三消有笑脸糖/交换糖/蜂蜜罐三套可选；
+- 王都币图标是金币 + 城堡垛口，和普通星星/金币区分；
 - 不使用 emoji 作为正式图标（可用作占位）。
 
 ## 9.1 动效与音频
@@ -130,8 +195,10 @@
 
 - 游戏只能通过 `Feedback` 触发反馈；
 - 时长只用 `DURATION` 的 6 档；
-- 粒子只用 7 种预烘焙形状；
-- 2.5D 表现只做「侧边/阴影/视差/厚边」，不改玩法坐标系。
+- 粒子只用 11 种预烘焙形状；
+- 2.5D 表现只做「侧边/阴影/视差/厚边/按压下沉」，不改玩法坐标系；
+- 大厅是平铺可平移世界，小游戏图标是 2D 平面；两者不要混用；
+- 局内方块必须颜色 + 轮廓 + 纹理三重区分，禁止只靠色相。
 
 ## 10. 验收
 

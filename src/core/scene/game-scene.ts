@@ -1,4 +1,5 @@
 import { AppServices } from '../app/services';
+import { PointerPoint, SwipeEvent } from '../input/input';
 import { GameContext, GameDefinition, GameInstance } from '../types';
 import { Renderer } from '../render/renderer';
 import { Scene } from './scene';
@@ -46,5 +47,21 @@ export class GameScene implements Scene {
 
   onTap(x: number, y: number): void {
     this.instance.onTap?.(x, y);
+  }
+
+  onPress(point: PointerPoint): void {
+    this.instance.onPress?.(point);
+  }
+
+  onDrag(point: PointerPoint): void {
+    this.instance.onDrag?.(point);
+  }
+
+  onRelease(point: PointerPoint): void {
+    this.instance.onRelease?.(point);
+  }
+
+  onSwipe(event: SwipeEvent): void {
+    this.instance.onSwipe?.(event);
   }
 }

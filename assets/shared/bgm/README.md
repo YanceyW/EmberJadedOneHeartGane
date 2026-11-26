@@ -12,8 +12,9 @@
 
 规格：**30–45 秒可循环、96kbps、单声道 mp3**（约 250–350KB/首）。
 
-代码里 `AudioService.playBgm(id)` 会按 `assets/shared/bgm/<id>.mp3` 播放；
-文件不存在时**静默失败**，不会阻塞游戏，所以可以先不加文件。
+代码里 `AudioService.playBgm(id)` 默认按 `assets/shared/bgm/<id>.mp3` 播放；
+游戏分包用 `playBgm(id, 'games/<id>/assets/bgm.mp3')`。文件不存在时**自动回退到上一首可用 BGM**，
+不会阻塞游戏，所以可以先不加文件。
 
 ## 用本地模型生成（ACE-Step）
 

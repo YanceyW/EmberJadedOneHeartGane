@@ -183,7 +183,10 @@ describe('audio service', () => {
   }
 
   it('is silent and safe without a synth', () => {
-    const audio = new AudioService(() => null, () => null);
+    const audio = new AudioService(
+      () => null,
+      () => null,
+    );
     expect(() => audio.unlock()).not.toThrow();
     expect(() => audio.playSfx('tap')).not.toThrow();
     expect(audio.hasSynth).toBe(false);
@@ -196,6 +199,87 @@ describe('audio service', () => {
     expect(() => audio.playSfx('match', { pitch: 4 })).not.toThrow();
     expect(() => audio.playSfx('win')).not.toThrow();
     expect(() => audio.playSfx('whoosh')).not.toThrow();
+    expect(() => audio.playSfx('tick')).not.toThrow();
+  });
+
+  it('starts bgm even when WebAudio is unavailable', () => {
+    const play = vi.fn(() => Promise.resolve());
+    const bgm: any = {
+      src: '',
+      loop: false,
+      volume: 0,
+      obeyMuteSwitch: true,
+      play,
+      pause() {},
+      stop() {},
+      onError: null,
+    };
+    const audio = new AudioService(
+      () => null,
+      () => bgm,
+    );
+    audio.playBgm('lobby');
+    expect(play).toHaveBeenCalledTimes(1);
+    expect(audio.hasSynth).toBe(false);
+
+    audio.unlock();
+    expect(play).toHaveBeenCalledTimes(2);
+  });
+
+  it('falls back to the previous bgm when a game track is missing', () => {
+    const play = vi.fn(() => Promise.resolve());
+    const bgm: any = {
+      src: '',
+      loop: false,
+      volume: 0,
+      obeyMuteSwitch: true,
+      play,
+      pause() {},
+      stop() {},
+      onError: null,
+    };
+    const audio = new AudioService(
+      () => null,
+      () => bgm,
+    );
+    audio.playBgm('lobby');
+    expect(bgm.src).toBe('assets/shared/bgm/lobby.mp3');
+
+    audio.playBgm('match3', 'games/match3/assets/bgm.mp3');
+    expect(bgm.src).toBe('games/match3/assets/bgm.mp3');
+
+    bgm.onError?.();
+    expect(bgm.src).toBe('assets/shared/bgm/lobby.mp3');
+    expect(play).toHaveBeenCalledTimes(3);
+  });
+
+  it('remembers a failed bgm source instead of retrying every scene', () => {
+    const play = vi.fn(() => Promise.resolve());
+    const bgm: any = {
+      src: '',
+      loop: false,
+      volume: 0,
+      obeyMuteSwitch: true,
+      play,
+      pause() {},
+      stop() {},
+      onError: null,
+    };
+    const audio = new AudioService(
+      () => null,
+      () => bgm,
+    );
+    audio.playBgm('missing');
+    expect(play).toHaveBeenCalledTimes(1);
+
+    bgm.onError?.({ errCode: 10003 });
+    audio.playBgm('missing');
+    expect(play).toHaveBeenCalledTimes(1);
+
+    // 用户主动重新开启音乐时允许重试一次。
+    audio.setMusic(false);
+    audio.setMusic(true);
+    expect(play).toHaveBeenCalledTimes(2);
   });
 
   it('does not play when sfx is disabled', () => {
@@ -206,17 +290,23 @@ describe('audio service', () => {
   });
 
   it('survives a throwing synth factory', () => {
-    const audio = new AudioService(() => {
-      throw new Error('no webaudio');
-    }, () => null);
+    const audio = new AudioService(
+      () => {
+        throw new Error('no webaudio');
+      },
+      () => null,
+    );
     expect(() => audio.unlock()).not.toThrow();
     expect(() => audio.playSfx('tap')).not.toThrow();
   });
 
   it('tolerates a broken bgm context', () => {
-    const audio = new AudioService(() => null, () => {
-      throw new Error('no audio');
-    });
+    const audio = new AudioService(
+      () => null,
+      () => {
+        throw new Error('no audio');
+      },
+    );
     expect(() => audio.playBgm('lobby')).not.toThrow();
     expect(() => audio.stopBgm()).not.toThrow();
   });
@@ -293,7 +383,10 @@ describe('feedback', () => {
   function deps() {
     const particles = new ParticleSystem(64);
     particles.setBudget(64);
-    const audio = new AudioService(() => null, () => null);
+    const audio = new AudioService(
+      () => null,
+      () => null,
+    );
     const haptics = new HapticsService();
     haptics.setEnabled(false);
     const quality = new QualityService({
@@ -327,6 +420,8 @@ describe('feedback', () => {
     expect(() => {
       fb.tap();
       fb.select();
+      fb.press();
+      fb.tick();
       fb.invalid();
       fb.invalid(1, 2);
       fb.match(2);

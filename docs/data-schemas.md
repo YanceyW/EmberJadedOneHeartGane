@@ -27,27 +27,43 @@ interface SaveEnvelope<T> {
 
 ```ts
 interface Profile {
-  schemaVersion: number;
-  playerId?: string;          // openid，云端返回
-  nickname?: string;          // 可选，默认「小国王」
+  schemaVersion: 3;
+  playerId: string;           // 本地稳定 ID，用于离线兜底名字
+  displayName: string;        // 王都居民-桃酥；从固定词库分配
+  nameClaimed: boolean;       // 是否已同步到云端 players
   createdAt: number;
   lastLoginAt: number;
   prosperity: number;         // 王都繁荣度
-  stardust: number;           // 通用货币
+  coins: number;              // 王都币；旧 stardust 自动迁移
   unlockedGames: GameId[];
-  collectibles: Record<string, number>;
-  daily: {
-    date: string;
-    tasks: DailyTask[];
-    claimed: string[];
+  cosmetics: {
+    iconStyle: string;        // candy / swap / honey
+    ownedIcons: string[];
+    royalOutfit: string;      // classic / garden / winter / starlight
+    ownedOutfits: string[];
+    build: { fountain: number; lights: number; garden: number };
   };
+  residents: Array<{ id: string; palette: number; since: string }>;
+  lastResidentDate: string;
   settings: {
     music: boolean;
     sfx: boolean;
     haptics: boolean;
+    reducedMotion: boolean;
+    quality: 'auto' | 'high' | 'mid' | 'low';
+    performanceMode: boolean;
+    ambientEffects: boolean;
+    sceneMotion: boolean;
+    textureDetail: boolean;
+    screenShake: boolean;
   };
 }
 ```
+
+迁移：
+
+- `v1 → v2`：`stardust` → `coins`；
+- `v2 → v3`：补齐 `quality/performanceMode/ambientEffects/sceneMotion/textureDetail/screenShake`，旧存档默认全部开启、画质 `auto`。
 
 ## 4. 王都三消
 
@@ -57,7 +73,7 @@ interface Match3Level {
   version: number;
   rows: number;
   cols: number;
-  moves: number;
+  seconds: number;          // 固定 180s；目标分数随关卡上涨
   goals: Match3Goal[];
   blocked: Cell[];
   seed: number;
@@ -83,7 +99,17 @@ interface Cell {
 - 反向生成：先放目标，再倒推棋盘；
 - 约束传播：保证至少一个可解交换；
 - 死局检测：无可解交换时重排；
-- 难度用目标数/障碍/颜色数控制。
+- 难度用目标分数/障碍/颜色数控制，时间固定 180 秒。
+
+节奏状态（不存档）：
+
+```ts
+interface Match3Tempo {
+  streak: number;       // 1–6
+  lastMatchAt: number;  // 单局时钟（秒）
+  windowLeft: number;   // 2 秒窗口剩余
+}
+```
 
 ## 5. 王都花园
 
@@ -130,7 +156,7 @@ interface MergeItem {
 interface MergeOrder {
   id: string;
   items: { id: string; count: number }[];
-  reward: { stardust: number; xp: number };
+  reward: { coins: number; xp: number };
   expiresAt?: number;
 }
 ```
@@ -187,7 +213,7 @@ interface DailyTask {
   type: string;
   target: number;
   progress: number;
-  reward: { stardust: number };
+  reward: { coins: number };
   claimed: boolean;
 }
 

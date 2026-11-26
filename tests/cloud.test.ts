@@ -14,18 +14,19 @@ describe('cloud service', () => {
     expect(service.openid).toBe('');
   });
 
-  it('goes online after login returns an openid', async () => {
+  it('goes online after login returns an openid and display name', async () => {
     vi.spyOn(platform.cloud, 'available').mockReturnValue(true);
     vi.spyOn(platform.cloud, 'init').mockImplementation(() => undefined);
     const call = vi.spyOn(platform.cloud, 'callFunction');
-    call.mockResolvedValue({ openid: 'openid-1' } as never);
+    call.mockResolvedValue({ openid: 'openid-1', displayName: '王都居民-桃酥' } as never);
 
     const service = new CloudService(true);
-    await service.init();
+    await service.init('王都居民-桃酥');
 
     expect(service.status).toBe('online');
     expect(service.openid).toBe('openid-1');
-    expect(call).toHaveBeenCalledWith('login');
+    expect(service.displayName).toBe('王都居民-桃酥');
+    expect(call).toHaveBeenCalledWith('login', { preferredName: '王都居民-桃酥' });
   });
 
   it('falls back to offline when the cloud function fails', async () => {
@@ -38,6 +39,34 @@ describe('cloud service', () => {
 
     expect(service.status).toBe('offline');
     expect(service.openid).toBe('');
+  });
+
+  it('renames through login and passes display name when submitting a score', async () => {
+    const call = vi.spyOn(platform.cloud, 'callFunction');
+    call.mockResolvedValue({ displayName: '王都居民-桃酥' } as never);
+    const service = new CloudService(true);
+    service.status = 'online';
+
+    await expect(service.rename('王都居民-桃酥')).resolves.toBe('王都居民-桃酥');
+    expect(call).toHaveBeenCalledWith('login', {
+      preferredName: '王都居民-桃酥',
+      forceName: true,
+    });
+
+    call.mockResolvedValue({ rank: 1, best: 1200 } as never);
+    await expect(
+      service.submitScore('match3', 1200, 1, '王都居民-桃酥'),
+    ).resolves.toEqual({ rank: 1, best: 1200 });
+    expect(call).toHaveBeenCalledWith('submitScore', {
+      gameId: 'match3',
+      score: 1200,
+      seed: 1,
+      displayName: '王都居民-桃酥',
+    });
+
+    call.mockResolvedValue({ entries: [{ rank: 1, score: 1200 }] } as never);
+    await expect(service.fetchLeaderboard('match3')).resolves.toEqual([{ rank: 1, score: 1200 }]);
+    expect(call).toHaveBeenCalledWith('leaderboard', { gameId: 'match3', limit: 20 });
   });
 
   it('stays offline when the runtime has no cloud support', async () => {

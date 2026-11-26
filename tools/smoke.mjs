@@ -12,9 +12,7 @@ if (!fs.existsSync(path.join(dist, 'game.js'))) {
 }
 
 const gameJson = JSON.parse(fs.readFileSync(path.join(dist, 'game.json'), 'utf8'));
-if (
-  !gameJson.subpackages?.some((item) => item.root.replace(/\/$/, '') === 'games/match3')
-) {
+if (!gameJson.subpackages?.some((item) => item.root.replace(/\/$/, '') === 'games/match3')) {
   console.error('[smoke] match3 subpackage missing from game.json');
   process.exit(1);
 }
@@ -58,6 +56,7 @@ function createMockCanvas() {
 }
 
 let touchStart = null;
+let touchMove = null;
 let touchEnd = null;
 
 const cloudCalls = [];
@@ -143,6 +142,14 @@ globalThis.wx = {
     windowHeight: 812,
     pixelRatio: 2,
   }),
+  getMenuButtonBoundingClientRect: () => ({
+    top: 50,
+    bottom: 82,
+    left: 296,
+    right: 366,
+    width: 70,
+    height: 32,
+  }),
   // 模拟已部署的云函数，让冒烟覆盖 登录 → 存取档 → 排行榜 整条链路。
   cloud: {
     init: () => {},
@@ -167,7 +174,9 @@ globalThis.wx = {
   onTouchStart: (cb) => {
     touchStart = cb;
   },
-  onTouchMove: () => {},
+  onTouchMove: (cb) => {
+    touchMove = cb;
+  },
   onTouchEnd: (cb) => {
     touchEnd = cb;
   },
@@ -197,7 +206,7 @@ globalThis.wx = {
 let frames = 0;
 globalThis.requestAnimationFrame = (cb) => {
   frames += 1;
-  if (frames < 400) setTimeout(() => cb(Date.now()), 16);
+  if (frames < 900) setTimeout(() => cb(Date.now()), 16);
   return frames;
 };
 
@@ -225,43 +234,54 @@ function tap(clientX, clientY) {
   });
 }
 
+function swipe(clientX, clientY, dx, dy) {
+  touchStart?.({ touches: [{ identifier: 1, clientX, clientY }], changedTouches: [] });
+  touchMove?.({
+    touches: [{ identifier: 1, clientX: clientX + dx, clientY: clientY + dy }],
+    changedTouches: [],
+  });
+  touchEnd?.({
+    touches: [],
+    changedTouches: [{ identifier: 1, clientX: clientX + dx, clientY: clientY + dy }],
+  });
+}
+
 // 设计坐标 → 客户端坐标（375 宽的模拟屏，scale = 0.5）
 const SCALE = 375 / 750;
 const BOARD_X = 45;
-const BOARD_Y = 88 + 250; // safeTop(44) / 0.5 + 250
+// safeTop 88 / 胶囊底部 164，hudTop = 164 + 16，棋盘再下移 208。
+const BOARD_Y = 164 + 16 + 208;
 const CELL = 82.5;
 
-function tapCell(row, col) {
-  const dx = BOARD_X + (col + 0.5) * CELL;
-  const dy = BOARD_Y + (row + 0.5) * CELL;
-  tap(dx * SCALE, dy * SCALE);
+function swipeCell(row, col, dRow, dCol) {
+  const sx = (BOARD_X + (col + 0.5) * CELL) * SCALE;
+  const sy = (BOARD_Y + (row + 0.5) * CELL) * SCALE;
+  const reach = CELL * 0.6 * SCALE;
+  swipe(sx, sy, dCol * reach, dRow * reach);
 }
 
-// 排行榜 → 关闭 → 进入三消
+// 排行榜 → 关闭 → 点王都三消糖果屋进入三消
 setTimeout(() => tap(73, 742), 40);
 setTimeout(() => tap(187, 538), 120);
+setTimeout(() => tap(81, 350), 220);
 
-// 扫一遍前几行的相邻交换，必然能命中至少一次有效三连，
-// 从而覆盖 交换 → 消除 → 下落 → 音效/粒子 的完整链路。
-let delay = 260;
+// 三消现在只认滑动：扫一遍前几行的相邻交换，覆盖
+// 交换 → 消除 → 下落 → 节奏加成 → 音效/粒子 的完整链路。
+// 每次滑动之间留出动画时间，避免被 busy 状态忽略。
+let delay = 650;
 for (let row = 0; row < 3; row += 1) {
   for (let col = 0; col < 6; col += 1) {
     const r = row;
     const c = col;
-    setTimeout(() => {
-      tapCell(r, c);
-      setTimeout(() => tapCell(r, c + 1), 24);
-    }, delay);
-    delay += 90;
+    setTimeout(() => swipeCell(r, c, 0, 1), delay);
+    delay += 430;
   }
 }
 
 setTimeout(() => {
   const failed =
     errors.length > 0 ||
-    loggedErrors.some(
-      (line) => line.includes('openGame failed') || line.includes('uncaught'),
-    );
+    loggedErrors.some((line) => line.includes('openGame failed') || line.includes('uncaught'));
   if (failed) {
     console.error('[smoke] failed');
     for (const error of errors) console.error(error);

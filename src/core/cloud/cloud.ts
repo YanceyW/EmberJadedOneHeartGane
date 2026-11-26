@@ -7,12 +7,14 @@ export type CloudStatus = 'offline' | 'connecting' | 'online';
 export interface LeaderboardEntry {
   rank: number;
   score: number;
+  name?: string;
   at?: number;
 }
 
 export class CloudService {
   status: CloudStatus = 'offline';
   openid = '';
+  displayName = '';
   readonly hasEnv: boolean;
 
   constructor(hasEnv: boolean = Boolean(CLOUD_ENV)) {
@@ -23,7 +25,7 @@ export class CloudService {
     return this.status === 'online';
   }
 
-  async init(): Promise<void> {
+  async init(preferredName?: string): Promise<void> {
     if (!this.hasEnv || !platform.cloud.available()) {
       this.status = 'offline';
       return;
@@ -32,8 +34,12 @@ export class CloudService {
     this.status = 'connecting';
     try {
       platform.cloud.init(CLOUD_ENV);
-      const result = await platform.cloud.callFunction<{ openid?: string }>('login');
+      const result = await platform.cloud.callFunction<{
+        openid?: string;
+        displayName?: string;
+      }>('login', preferredName ? { preferredName } : undefined);
       this.openid = result?.openid ?? '';
+      this.displayName = result?.displayName ?? '';
       this.status = this.openid ? 'online' : 'offline';
     } catch {
       this.status = 'offline';
@@ -51,24 +57,31 @@ export class CloudService {
     }
   }
 
-  async submitScore(
-    gameId: string,
-    type: string,
-    score: number,
-    seed: number,
-  ): Promise<{ rank: number; best: number } | null> {
-    return this.call('submitScore', { gameId, type, score, seed });
+  async rename(preferredName: string): Promise<string | null> {
+    const result = await this.call<{ displayName?: string; error?: string }>('login', {
+      preferredName,
+      forceName: true,
+    });
+    const name = result?.displayName ?? '';
+    if (name) this.displayName = name;
+    return name || null;
   }
 
-  async fetchLeaderboard(
+  async submitScore(
     gameId: string,
-    type: string,
-    limit = 20,
-  ): Promise<LeaderboardEntry[] | null> {
+    score: number,
+    seed: number,
+    displayName?: string,
+  ): Promise<{ rank: number; best: number } | null> {
+    return this.call('submitScore', { gameId, score, seed, displayName });
+  }
+
+  async fetchLeaderboard(gameId: string, limit = 20): Promise<LeaderboardEntry[] | null> {
     const result = await this.call<{ entries?: LeaderboardEntry[]; error?: string }>(
       'leaderboard',
-      { gameId, type, limit },
+      { gameId, limit },
     );
     if (!result || result.error) return null;
     return result.entries ?? [];
-  }}
+  }
+}

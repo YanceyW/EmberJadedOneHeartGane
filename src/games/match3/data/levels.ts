@@ -1,22 +1,25 @@
 export interface Match3Level {
   id: number;
   title: string;
-  moves: number;
+  seconds: number;
   target: number;
   colors: number;
 }
 
+/** 每关固定 3 分钟，难度只靠目标分数上涨。 */
+export const LEVEL_SECONDS = 180;
+
 export const LEVELS: Match3Level[] = [
-  { id: 1, title: '初入王都', moves: 24, target: 600, colors: 5 },
-  { id: 2, title: '甜点街角', moves: 24, target: 700, colors: 5 },
-  { id: 3, title: '喷泉广场', moves: 24, target: 800, colors: 5 },
-  { id: 4, title: '花瓣集市', moves: 23, target: 900, colors: 5 },
-  { id: 5, title: '蜂蜜工坊', moves: 23, target: 1000, colors: 5 },
-  { id: 6, title: '星光露台', moves: 22, target: 1100, colors: 5 },
-  { id: 7, title: '莓果庭院', moves: 22, target: 1200, colors: 5 },
-  { id: 8, title: '王都茶会', moves: 21, target: 1300, colors: 5 },
-  { id: 9, title: '暮色长廊', moves: 21, target: 1400, colors: 5 },
-  { id: 10, title: '王都之心', moves: 20, target: 1500, colors: 5 },
+  { id: 1, title: '初入王都', seconds: LEVEL_SECONDS, target: 1500, colors: 5 },
+  { id: 2, title: '甜点街角', seconds: LEVEL_SECONDS, target: 1800, colors: 5 },
+  { id: 3, title: '喷泉广场', seconds: LEVEL_SECONDS, target: 2100, colors: 5 },
+  { id: 4, title: '花瓣集市', seconds: LEVEL_SECONDS, target: 2400, colors: 5 },
+  { id: 5, title: '蜂蜜工坊', seconds: LEVEL_SECONDS, target: 2700, colors: 5 },
+  { id: 6, title: '星光露台', seconds: LEVEL_SECONDS, target: 3000, colors: 5 },
+  { id: 7, title: '莓果庭院', seconds: LEVEL_SECONDS, target: 3300, colors: 5 },
+  { id: 8, title: '王都茶会', seconds: LEVEL_SECONDS, target: 3600, colors: 5 },
+  { id: 9, title: '暮色长廊', seconds: LEVEL_SECONDS, target: 3900, colors: 5 },
+  { id: 10, title: '王都之心', seconds: LEVEL_SECONDS, target: 4200, colors: 5 },
 ];
 
 export function levelById(id: number): Match3Level {

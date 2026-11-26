@@ -10,7 +10,8 @@ export type SfxName =
   | 'fail'
   | 'whoosh'
   | 'pop'
-  | 'drop';
+  | 'drop'
+  | 'tick';
 
 export interface SfxOptions {
   /** 半音偏移，连击时按 0/2/4 递增即可升调 */
@@ -37,9 +38,12 @@ export class AudioService {
   private sfxGain: any = null;
   private noise: any = null;
   private unlocked = false;
+  private synthTried = false;
   private voices: any[] = [];
   private bgm: any = null;
   private bgmSource = '';
+  private bgmFallback = '';
+  private readonly failedBgm = new Set<string>();
   private currentBgm = '';
   private maxVoices = 6;
 
@@ -58,27 +62,30 @@ export class AudioService {
 
   /** 首次触摸后调用：iOS/安卓都要求用户手势后才能出声。 */
   unlock(): void {
-    if (!this.ctx) {
+    const firstUnlock = !this.unlocked;
+    if (!this.ctx && !this.synthTried) {
+      this.synthTried = true;
       const ctx = this.safeCreate(this.synthFactory);
-      if (!ctx) {
-        this.unlocked = true;
-        return;
-      }
-      this.ctx = ctx;
-      try {
-        this.master = ctx.createGain();
-        this.master.gain.value = 0.8;
-        this.master.connect(ctx.destination);
+      if (ctx) {
+        this.ctx = ctx;
+        try {
+          this.master = ctx.createGain();
+          this.master.gain.value = 0.8;
+          this.master.connect(ctx.destination);
 
-        this.musicGain = ctx.createGain();
-        this.musicGain.gain.value = 0.5;
-        this.musicGain.connect(this.master);
+          this.musicGain = ctx.createGain();
+          this.musicGain.gain.value = 0.5;
+          this.musicGain.connect(this.master);
 
-        this.sfxGain = ctx.createGain();
-        this.sfxGain.gain.value = 0.7;
-        this.sfxGain.connect(this.master);
-      } catch {
-        this.ctx = null;
+          this.sfxGain = ctx.createGain();
+          this.sfxGain.gain.value = 0.7;
+          this.sfxGain.connect(this.master);
+        } catch {
+          this.ctx = null;
+          this.master = null;
+          this.musicGain = null;
+          this.sfxGain = null;
+        }
       }
     }
 
@@ -89,13 +96,12 @@ export class AudioService {
       // ignore
     }
 
-    // iOS 等平台要求首次用户手势后才能播音频：把 BGM 也在这里补一次启动。
-    if (this.currentBgm && this.music) {
-      try {
-        void this.bgm?.play?.();
-      } catch {
-        // ignore
-      }
+    // 没有 WebAudio 时 BGM 仍可走 InnerAudioContext，所以这里不能提前 return。
+    // 只在首次解锁时补启动，避免每次 touchstart 都重播 BGM。
+    // 同时清掉之前的失败记录：首次手势后音频能力才真正可用，值得重试一次。
+    if (firstUnlock && this.currentBgm && this.music) {
+      this.failedBgm.clear();
+      this.playBgm(this.currentBgm);
     }
   }
 
@@ -109,8 +115,14 @@ export class AudioService {
 
   setMusic(enabled: boolean): void {
     this.music = enabled;
-    if (!enabled) this.stopBgm();
-    else if (this.currentBgm) this.playBgm(this.currentBgm);
+    if (!enabled) {
+      this.stopBgm();
+      return;
+    }
+    // 用户主动重新开启音乐时允许重试之前失败的资源。
+    this.failedBgm.clear();
+    this.bgmFallback = '';
+    if (this.currentBgm) this.playBgm(this.currentBgm);
   }
 
   setSfx(enabled: boolean): void {
@@ -172,6 +184,9 @@ export class AudioService {
         case 'drop':
           this.tone('sine', 320 * pitch, 180 * pitch, 0.09, 0.12 * volume, 1400);
           break;
+        case 'tick':
+          this.tone('triangle', 1500 * pitch, 1100 * pitch, 0.035, 0.1 * volume, 3200);
+          break;
         default:
           break;
       }
@@ -184,6 +199,7 @@ export class AudioService {
     this.currentBgm = id;
     if (!this.music) return;
     const source = path ?? `assets/shared/bgm/${id}.mp3`;
+    if (this.failedBgm.has(source)) return;
 
     try {
       if (!this.bgm) {
@@ -193,19 +209,55 @@ export class AudioService {
         this.bgm.loop = true;
         this.bgm.obeyMuteSwitch = true;
         this.bgm.volume = 0.5;
-        // 资源还没生成时不要刷错误日志，静默等待打包进 mp3。
-        this.bgm.onError = () => undefined;
+        this.bgm.onError = (error: any) => this.handleBgmError(error);
       }
       if (this.bgmSource === source) {
-        void this.bgm.play?.();
+        this.playBgmSafely();
         return;
+      }
+      // 记住上一首可用的 BGM，游戏 BGM 缺失时自动回退，而不是直接静音。
+      if (this.bgmSource && !this.failedBgm.has(this.bgmSource)) {
+        this.bgmFallback = this.bgmSource;
       }
       this.bgmSource = source;
       this.bgm.src = source;
-      void this.bgm.play?.();
+      this.playBgmSafely();
     } catch {
       this.bgm = null;
       this.bgmSource = '';
+    }
+  }
+
+  private handleBgmError(error?: any): void {
+    const failed = this.bgmSource;
+    if (!failed) return;
+
+    // 只有「文件缺失/格式错误」才永久记住；手势未解锁等临时错误留给下一次 unlock/resume 重试。
+    const code = Number(error?.errCode ?? error?.errno ?? 0);
+    const message = String(error?.errMsg ?? '');
+    if (code === 10003 || code === 10004 || /not found|no such file|404/i.test(message)) {
+      this.failedBgm.add(failed);
+    }
+
+    const fallback = this.bgmFallback;
+    if (!fallback || this.failedBgm.has(fallback)) return;
+
+    this.bgmFallback = '';
+    this.bgmSource = fallback;
+    try {
+      if (this.bgm) this.bgm.src = fallback;
+      this.playBgmSafely();
+    } catch {
+      // ignore
+    }
+  }
+
+  private playBgmSafely(): void {
+    try {
+      const result = this.bgm?.play?.();
+      if (result && typeof result.catch === 'function') result.catch(() => undefined);
+    } catch {
+      // ignore
     }
   }
 
@@ -228,7 +280,7 @@ export class AudioService {
 
   resume(): void {
     try {
-      this.bgm?.play?.();
+      if (this.currentBgm && this.music) this.playBgm(this.currentBgm);
       void this.ctx?.resume?.();
     } catch {
       // ignore

@@ -125,6 +125,49 @@ export function drawCoin(
   drawStar(ctx, cx, cy, radius * 0.34, radius * 0.16, '#FFF3C4');
 }
 
+/** 王都币：金币 + 城堡垛口，和普通星星/金币区分开。 */
+export function drawWangduCoin(
+  ctx: CanvasRenderingContext2D,
+  cx: number,
+  cy: number,
+  radius: number,
+): void {
+  ctx.beginPath();
+  ctx.arc(cx, cy, radius, 0, Math.PI * 2);
+  ctx.fillStyle = COLORS.gold;
+  ctx.fill();
+  ctx.strokeStyle = COLORS.honeyDeep;
+  ctx.lineWidth = 2;
+  ctx.stroke();
+
+  ctx.beginPath();
+  ctx.arc(cx, cy, radius * 0.62, 0, Math.PI * 2);
+  ctx.strokeStyle = 'rgba(185,134,47,0.55)';
+  ctx.lineWidth = 2;
+  ctx.stroke();
+
+  const w = radius * 0.78;
+  const h = radius * 0.54;
+  const left = cx - w / 2;
+  const bottom = cy + h / 2;
+  ctx.fillStyle = COLORS.honeyDeep;
+  ctx.beginPath();
+  ctx.moveTo(left, bottom);
+  ctx.lineTo(left, cy - h * 0.18);
+  ctx.lineTo(left + w * 0.18, cy - h * 0.18);
+  ctx.lineTo(left + w * 0.18, cy - h * 0.36);
+  ctx.lineTo(left + w * 0.38, cy - h * 0.36);
+  ctx.lineTo(left + w * 0.38, cy - h * 0.18);
+  ctx.lineTo(left + w * 0.62, cy - h * 0.18);
+  ctx.lineTo(left + w * 0.62, cy - h * 0.36);
+  ctx.lineTo(left + w * 0.82, cy - h * 0.36);
+  ctx.lineTo(left + w * 0.82, cy - h * 0.18);
+  ctx.lineTo(left + w, cy - h * 0.18);
+  ctx.lineTo(left + w, bottom);
+  ctx.closePath();
+  ctx.fill();
+}
+
 export function drawStar(
   ctx: CanvasRenderingContext2D,
   cx: number,

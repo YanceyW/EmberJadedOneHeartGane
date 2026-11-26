@@ -15,6 +15,14 @@ interface WxApi {
   getWindowInfo?(): any;
   getDeviceInfo?(): { benchmarkLevel?: number; platform?: string; brand?: string };
   getSystemInfoSync(): any;
+  getMenuButtonBoundingClientRect?(): {
+    top: number;
+    bottom: number;
+    left: number;
+    right: number;
+    width: number;
+    height: number;
+  };
   createWebAudioContext?(): any;
   createInnerAudioContext?(): any;
   setInnerAudioOption?(options: { obeyMuteSwitch?: boolean }): void;

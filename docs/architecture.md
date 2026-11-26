@@ -44,6 +44,10 @@ game.js
       └─ SceneManager.replace(LobbyScene)
 
 LobbyScene
+  ├─ computeTownLayout()            平铺世界 + 相机边界
+  ├─ TownArt.ensure()               按阶段烘焙天空/地面/建筑
+  ├─ LobbyAmbient                   大厅环境粒子池
+  ├─ LobbyChrome                    纸雕 HUD/弹窗
   └─ 点击场馆
       ├─ showLoading()
       ├─ wx.loadSubpackage({ name })
@@ -62,6 +66,7 @@ interface Scene {
   update(dt: number): void;
   render(ctx: RenderContext): void;
   resize(width: number, height: number): void;
+  onPinch?(event: PinchEvent): void;
   pause?(): void;
   resume?(): void;
 }
@@ -83,11 +88,21 @@ interface Scene {
 - 粒子/对象池上限；
 - 低端机降级：30fps、减少粒子、关闭阴影/模糊。
 
+### 5.1 大厅渲染
+
+- 世界宽 1500，默认视口 750；坐标以屏幕中心为 0；
+- `TownCamera` 负责平移/缩放/边界/世界↔屏幕转换；
+- `TownArt` 按 `dawn/day/dusk/night` 烘焙天空、地面、建筑，LRU 2 阶段；
+- 每帧画：天空 → 地面 → 建筑（深度排序，视口裁剪）→ 动态覆盖（招牌/烟/窗光）→ 喷泉/角色/居民/前景 → 环境粒子 → UI；
+- 前景以 1.04 倍相机位移做轻微视差；
+- 平移/缩放不触发重新烘焙；切换画质或纸纹开关才失效。
+
 ## 6. 输入
 
 - 统一 `PointerEvent`：down/move/up/cancel；
 - 坐标转换到设计坐标；
 - 支持多点触控（双人同屏最多 2 点）；
+- 双指捏合输出 `PinchEvent`（scale / center），捏合期间抑制 tap/drag；
 - UI 命中测试优先于游戏；
 - 防误触：按钮最小 44×44 逻辑像素；
 - 输入事件在场景切换时清空。
@@ -149,6 +164,7 @@ interface SaveEnvelope<T> {
 
 - 所有 UI 来自 `shared/design-system`；
 - 9-slice 面板、按钮、弹窗、Toast；
+- `paint.ts` 提供纸雕笔刷，`paper-ui.ts` 提供纸面板/贴纸按钮/开关/分段标签；
 - UI 层独立于场景，支持 overlay；
 - 安全区适配（刘海/底部横条）；
 - 动效 token 统一。

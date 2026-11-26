@@ -1,54 +1,147 @@
-import { GAMES, GameManifestEntry } from '../shared/content/games-manifest.generated';
+import { GAME_VERSION } from '../config';
 import { AppServices } from '../core/app/services';
 import { LeaderboardEntry } from '../core/cloud/cloud';
+import { PinchEvent, PointerPoint } from '../core/input/input';
+import { hashString } from '../core/rng';
 import { Renderer } from '../core/render/renderer';
 import { Scene } from '../core/scene/scene';
+import { drawText, drawWangduCoin, pointInRect, Rect } from '../shared/design-system/draw';
+import { drawRoyalPair, RoyalMood, RoyalOutfitId } from '../shared/design-system/royals';
+import { COLORS, FONT, RADIUS } from '../shared/design-system/tokens';
 import {
-  drawBerry,
-  drawCoin,
-  drawDiamond,
-  drawFish,
-  drawHex,
-  drawPanel,
-  drawPetal,
-  drawStar,
-  drawText,
-  fillRoundRect,
-  pointInRect,
-  Rect,
-  roundRectPath,
-  strokeRoundRect,
-} from '../shared/design-system/draw';
-import { Accent, accentOf, COLORS, FONT, RADIUS, SPACE } from '../shared/design-system/tokens';
+  drawDivider,
+  drawPaperPanel,
+  drawSegmented,
+  drawSettingRow,
+  drawStickerButton,
+  drawTapeNote,
+  drawWoodRibbon,
+} from '../shared/design-system/paper-ui';
+import { inkRoundRect } from '../shared/design-system/paint';
 import { platform } from '../shared/platform/wx';
-import { GAME_VERSION } from '../config';
+import { drawGameIcon } from './game-icons';
+import { ChromeNav, drawDock, drawHeader, drawLobbyToast, drawPanHint } from './lobby-chrome';
+import { TownArt } from './town/town-art';
+import { LobbyAmbient } from './town/town-particles';
+import {
+  createCamera,
+  panCamera,
+  screenToWorld,
+  TownCamera,
+  worldToScreen,
+  zoomAt,
+} from './town/town-camera';
+import { TownPhase } from './town/town-palette';
+import {
+  BUILD_TRACKS,
+  buyOrEquipIcon,
+  buyOrEquipOutfit,
+  ICON_STYLES,
+  nextBuildCost,
+  OUTFITS,
+  ShopResult,
+  upgradeBuildTrack,
+} from './shop';
+import { computeTownLayout, isOverRoyal, TownLayout, townBuildingAt } from './town/town-layout';
+import { townPalette, townPhaseAt } from './town/town-palette';
+import { drawTown } from './town/town-view';
+import { generateNameCandidates } from '../shared/content/player-names';
+import { GAMES } from '../shared/content/games-manifest.generated';
 
-interface VenueCard {
-  entry: GameManifestEntry;
-  rect: Rect;
-  accent: Accent;
-}
+type Modal = 'settings' | 'privacy' | 'rank' | 'shop' | 'name' | null;
+type ShopTab = 'build' | 'outfit' | 'icon';
+type NavId = 'rank' | 'daily' | 'collection' | 'shop';
 
 interface NavItem {
+  id: NavId;
   label: string;
   rect: Rect;
 }
+
+interface ShopHit {
+  kind: 'tab' | 'build' | 'outfit' | 'icon' | 'close';
+  id: string;
+  rect: Rect;
+}
+
+interface NameHit {
+  kind: 'candidate' | 'reroll' | 'use' | 'close';
+  index: number;
+  rect: Rect;
+}
+
+interface RankTab {
+  id: string;
+  rect: Rect;
+}
+
 
 interface Toast {
   text: string;
   until: number;
 }
 
+function resultMessage(result: ShopResult): string {
+  switch (result) {
+    case 'bought':
+      return '已兑换并换上';
+    case 'owned':
+      return '已经拥有了';
+    case 'equipped':
+      return '已换上';
+    case 'poor':
+      return '王都币不够，再玩一局吧';
+    case 'maxed':
+      return '已经满级啦';
+    default:
+      return '这件装扮暂时不可用';
+  }
+}
+
 export class LobbyScene implements Scene {
   readonly key = 'lobby';
 
-  private cards: VenueCard[] = [];
+  private layout: TownLayout;
   private navs: NavItem[] = [];
+  private pressedNav: NavId | null = null;
+  private walletRect: Rect = { x: 0, y: 0, w: 0, h: 0 };
   private settingsRect: Rect = { x: 0, y: 0, w: 0, h: 0 };
-  private starRect: Rect = { x: 0, y: 0, w: 0, h: 0 };
   private toast: Toast | null = null;
-  private modal: 'settings' | 'privacy' | 'rank' | null = null;
+  private modal: Modal = null;
   private pulse = 0;
+
+  private readonly art = new TownArt();
+  private readonly ambient: LobbyAmbient;
+  private camera: TownCamera = createCamera();
+  private lastDrag: { x: number; y: number } | null = null;
+  private pinchBaseZoom: number | null = null;
+  private panHintUntil = 0;
+  private phase: TownPhase = townPhaseAt(new Date().getHours());
+  private phaseFlash = 0;
+  private settingsTab: 'sound' | 'visual' | 'data' = 'sound';
+  private tabSoundRect: Rect = { x: 0, y: 0, w: 0, h: 0 };
+  private tabVisualRect: Rect = { x: 0, y: 0, w: 0, h: 0 };
+  private tabDataRect: Rect = { x: 0, y: 0, w: 0, h: 0 };
+  private qualityRects: Rect[] = [];
+  private performanceRect: Rect = { x: 0, y: 0, w: 0, h: 0 };
+  private ambientRect: Rect = { x: 0, y: 0, w: 0, h: 0 };
+  private sceneRect: Rect = { x: 0, y: 0, w: 0, h: 0 };
+  private textureRect: Rect = { x: 0, y: 0, w: 0, h: 0 };
+  private shakeRect: Rect = { x: 0, y: 0, w: 0, h: 0 };
+  private performanceSnapshot: {
+    quality: 'auto' | 'high' | 'mid' | 'low';
+    ambientEffects: boolean;
+    sceneMotion: boolean;
+    textureDetail: boolean;
+    screenShake: boolean;
+  } | null = null;
+
+  private shopTab: ShopTab = 'build';
+  private shopHits: ShopHit[] = [];
+  private nameCandidates: string[] = [];
+  private nameSelected = 0;
+  private nameHits: NameHit[] = [];
+  private nameBusy = false;
 
   private closeRect: Rect = { x: 0, y: 0, w: 0, h: 0 };
   private musicRect: Rect = { x: 0, y: 0, w: 0, h: 0 };
@@ -57,84 +150,187 @@ export class LobbyScene implements Scene {
   private deleteRect: Rect = { x: 0, y: 0, w: 0, h: 0 };
   private hapticsRect: Rect = { x: 0, y: 0, w: 0, h: 0 };
   private motionRect: Rect = { x: 0, y: 0, w: 0, h: 0 };
+  private nameRowRect: Rect = { x: 0, y: 0, w: 0, h: 0 };
+  private changeNameRect: Rect = { x: 0, y: 0, w: 0, h: 0 };
   private privacyCloseRect: Rect = { x: 0, y: 0, w: 0, h: 0 };
   private rankCloseRect: Rect = { x: 0, y: 0, w: 0, h: 0 };
+  private rankTabs: RankTab[] = [];
+  private rankGameId = 'match3';
+  private rankRequestId = 0;
   private rankLoading = false;
   private rankEntries: LeaderboardEntry[] = [];
   private rankMessage = '';
 
   constructor(private readonly services: AppServices) {
-    this.layout();
+    this.layout = computeTownLayout(
+      services.renderer.width,
+      services.renderer.height,
+      services.renderer.safeTop,
+      services.renderer.safeBottom,
+      services.renderer.capsuleBottom,
+    );
+    this.ambient = new LobbyAmbient(services.atlas, services.quality);
+    this.layoutDock();
   }
 
   enter(): void {
     this.services.analytics.track('lobby_enter');
+    this.services.audio.playBgm('lobby');
+    this.ensureResident();
+    this.panHintUntil = Date.now() + 3400;
+    this.art.ensure(
+      this.layout,
+      this.phase,
+      this.services.quality.tier,
+      this.services.quality.allowTextureDetail,
+    );
   }
 
   exit(): void {
     this.services.analytics.track('lobby_exit');
+    this.ambient.clear();
   }
 
   update(dt: number): void {
     this.pulse += dt;
+    const nextPhase = townPhaseAt(new Date().getHours());
+    if (nextPhase !== this.phase) {
+      this.phase = nextPhase;
+      this.phaseFlash = 1;
+      this.art.ensure(
+        this.layout,
+        this.phase,
+        this.services.quality.tier,
+        this.services.quality.allowTextureDetail,
+      );
+    }
+    if (this.phaseFlash > 0) this.phaseFlash = Math.max(0, this.phaseFlash - dt * 4.2);
+    this.ambient.update(dt, {
+      layout: this.layout,
+      camera: this.camera,
+      night: this.phase === 'night',
+      reducedMotion: this.services.quality.reducedMotion,
+      sceneMotion: this.services.quality.allowSceneMotion,
+      fountainLevel: this.services.profile.get().cosmetics.build.fountain,
+    });
   }
 
-  private layout(): void {
-    const { width, height, safeTop, safeBottom } = this.services.renderer;
-    const margin = 40;
-    const gap = 20;
-    const cardW = (width - margin * 2 - gap) / 2;
-    const cardH = 300;
-    const top = safeTop + 208;
-
-    this.cards = GAMES.map((entry, index) => ({
-      entry,
-      rect: {
-        x: margin + (index % 2) * (cardW + gap),
-        y: top + Math.floor(index / 2) * (cardH + gap),
-        w: cardW,
-        h: cardH,
-      },
-      accent: accentOf(entry.accent),
-    }));
-
-    const navW = (width - margin * 2 - 24) / 3;
-    const navY = height - safeBottom - 112;
-    const labels = ['排行榜', '每日委托', '收集册'];
-    this.navs = labels.map((label, index) => ({
+  private layoutDock(): void {
+    const dock = this.layout.dockRect;
+    const gap = 10;
+    const itemW = (dock.w - gap * 3) / 4;
+    const labels: Array<[NavId, string]> = [
+      ['rank', '排行榜'],
+      ['daily', '每日委托'],
+      ['collection', '收集册'],
+      ['shop', '王都小铺'],
+    ];
+    this.navs = labels.map(([id, label], index) => ({
+      id,
       label,
-      rect: { x: margin + index * (navW + 12), y: navY, w: navW, h: 80 },
+      rect: {
+        x: dock.x + index * (itemW + gap),
+        y: dock.y + 6,
+        w: itemW,
+        h: dock.h - 12,
+      },
     }));
+    this.walletRect = {
+      x: this.layout.width - 40 - 64 - 16 - 200,
+      y: this.layout.headerTop + 16,
+      w: 200,
+      h: 58,
+    };
+    this.settingsRect = {
+      x: this.layout.width - 40 - 64,
+      y: this.layout.headerTop + 10,
+      w: 64,
+      h: 64,
+    };
+  }
 
-    this.settingsRect = { x: width - margin - 64, y: safeTop + 28, w: 64, h: 64 };
-    this.starRect = { x: width - margin - 64 - 16 - 190, y: safeTop + 34, w: 190, h: 52 };
+  private ensureResident(): void {
+    const today = this.services.time.todayKey();
+    const profile = this.services.profile.get();
+    if (profile.lastResidentDate === today) return;
+    this.services.profile.addResident({
+      id: `resident-${today}`,
+      palette: hashString(today) % 6,
+      since: today,
+    });
+    this.services.profile.markResidentDate(today);
   }
 
   render(renderer: Renderer): void {
     const ctx = renderer.ctx;
-    const { width, height, safeTop } = renderer;
+    const profile = this.services.profile.get();
+    const palette = townPalette(this.phase);
+    this.art.ensure(
+      this.layout,
+      this.phase,
+      this.services.quality.tier,
+      this.services.quality.allowTextureDetail,
+    );
 
-    this.drawBackground(ctx, width, height, safeTop);
-    this.drawHeader(ctx, safeTop);
-
-    drawText(ctx, '王都场馆', 40, safeTop + 172, {
-      size: FONT.body,
-      color: COLORS.inkSoft,
-      weight: '700',
+    drawTown(ctx, this.layout, {
+      palette,
+      phase: this.phase,
+      camera: this.camera,
+      art: this.art,
+      time: this.pulse,
+      reducedMotion: this.services.quality.reducedMotion,
+      quality: this.services.quality.tier,
+      sceneMotion: this.services.quality.allowSceneMotion,
+      textureDetail: this.services.quality.allowTextureDetail,
+      iconStyle: profile.cosmetics.iconStyle,
+      outfit: profile.cosmetics.royalOutfit as RoyalOutfitId,
+      mood: this.royalMood(),
+      build: profile.cosmetics.build,
+      residentCount: profile.residents.length,
     });
-    drawText(ctx, `${GAMES.length} 个场馆`, width - 40, safeTop + 172, {
-      size: FONT.caption,
-      color: COLORS.inkSoft,
-      align: 'right',
+
+    this.ambient.draw(ctx);
+
+    if (this.phaseFlash > 0.001) {
+      ctx.save();
+      ctx.globalAlpha = Math.sin((1 - this.phaseFlash) * Math.PI) * 0.34;
+      ctx.fillStyle = COLORS.cream;
+      ctx.fillRect(0, 0, this.layout.width, this.layout.height);
+      ctx.restore();
+    }
+
+    drawHeader(ctx, {
+      layout: this.layout,
+      coins: profile.coins,
+      displayName: profile.displayName,
+      phase: this.phase,
+      pressedNav: this.pressedNav,
+      navs: this.navs as ChromeNav[],
+      walletRect: this.walletRect,
+      settingsRect: this.settingsRect,
     });
+    drawDock(ctx, {
+      layout: this.layout,
+      coins: profile.coins,
+      displayName: profile.displayName,
+      phase: this.phase,
+      pressedNav: this.pressedNav,
+      navs: this.navs as ChromeNav[],
+      walletRect: this.walletRect,
+      settingsRect: this.settingsRect,
+    });
+    if (this.toast && Date.now() < this.toast.until) {
+      drawLobbyToast(ctx, this.layout, this.toast.text);
+    }
+    if (!this.modal && Date.now() < this.panHintUntil) {
+      drawPanHint(ctx, this.layout);
+    }
 
-    for (const card of this.cards) this.drawVenue(ctx, card);
-    this.drawNav(ctx);
-    this.drawToast(ctx, width, height);
-
-    if (this.modal === 'settings') this.drawSettings(ctx, width, height);
-    if (this.modal === 'privacy') this.drawPrivacy(ctx, width, height);
-    if (this.modal === 'rank') this.drawRank(ctx, width, height);
+    if (this.modal === 'settings') this.drawSettings(ctx, renderer.width, renderer.height);
+    if (this.modal === 'privacy') this.drawPrivacy(ctx, renderer.width, renderer.height);
+    if (this.modal === 'rank') this.drawRank(ctx, renderer.width, renderer.height);
+    if (this.modal === 'shop') this.drawShop(ctx, renderer.width, renderer.height);
+    if (this.modal === 'name') this.drawNamePicker(ctx, renderer.width, renderer.height);
   }
 
   onTap(x: number, y: number): void {
@@ -143,14 +339,31 @@ export class LobbyScene implements Scene {
       return;
     }
     if (this.modal === 'privacy') {
-      this.handlePrivacyTap(x, y);
+      if (pointInRect(x, y, this.privacyCloseRect)) {
+        this.services.feedback.tap();
+        this.modal = 'settings';
+      }
       return;
     }
     if (this.modal === 'rank') {
       if (pointInRect(x, y, this.rankCloseRect)) {
         this.services.feedback.tap();
         this.modal = null;
+        return;
       }
+      const tab = this.rankTabs.find((item) => pointInRect(x, y, item.rect));
+      if (tab && tab.id !== this.rankGameId) {
+        this.services.feedback.tap();
+        this.loadRank(tab.id);
+      }
+      return;
+    }
+    if (this.modal === 'shop') {
+      this.handleShopTap(x, y);
+      return;
+    }
+    if (this.modal === 'name') {
+      this.handleNameTap(x, y);
       return;
     }
 
@@ -159,400 +372,693 @@ export class LobbyScene implements Scene {
       this.modal = 'settings';
       return;
     }
-    if (pointInRect(x, y, this.starRect)) {
+    if (pointInRect(x, y, this.walletRect)) {
       this.services.feedback.tap();
-      this.showToast('星尘可以通过小游戏和每日委托获得');
+      this.showToast('王都币来自小游戏、每日委托和排行榜，只能兑换外观');
       return;
     }
 
-    for (const card of this.cards) {
-      if (!pointInRect(x, y, card.rect)) continue;
-      if (card.entry.status === 'playable') {
+    const world = screenToWorld(
+      this.camera,
+      x,
+      y,
+      this.layout.width,
+      this.layout.focusY,
+    );
+    if (isOverRoyal(this.layout, world.x, world.y)) {
+      this.services.feedback.select();
+      this.ambient.burst('petal', x, y, 0.7);
+      this.openShop('outfit');
+      return;
+    }
+
+    const building = townBuildingAt(this.layout, world.x, world.y);
+    if (building) {
+      if (building.entry.status === 'playable') {
         this.services.feedback.tap();
-        this.services.analytics.track('venue_click', { gameId: card.entry.id });
-        this.services.openGame(card.entry.id);
+        const center = worldToScreen(
+          this.camera,
+          building.base.x,
+          building.base.y - 110 * building.scale,
+          this.layout.width,
+          this.layout.focusY,
+        );
+        this.ambient.burst('sparkle', center.x, center.y, 0.9);
+        this.services.analytics.track('venue_click', { gameId: building.entry.id });
+        this.services.openGame(building.entry.id);
       } else {
-        // 未开放的场馆用「非法操作」的轻反馈，不用成功音误导玩家
         this.services.feedback.invalid();
-        this.showToast(`${card.entry.title}正在装修中，敬请期待`);
+        this.ambient.burst('dust', x, y, 0.6);
+        this.showToast(`${building.entry.title}正在装修中，敬请期待`);
       }
       return;
     }
 
     for (const nav of this.navs) {
       if (!pointInRect(x, y, nav.rect)) continue;
-      if (nav.label === '排行榜') {
+      this.handleNav(nav.id);
+      return;
+    }
+  }
+
+  onPress(point: PointerPoint): void {
+    if (this.modal) return;
+    this.pressedNav = this.navs.find((nav) => pointInRect(point.x, point.y, nav.rect))?.id ?? null;
+    this.lastDrag = null;
+    this.pinchBaseZoom = null;
+    const world = screenToWorld(this.camera, point.x, point.y, this.layout.width, this.layout.focusY);
+    if (townBuildingAt(this.layout, world.x, world.y)) this.services.feedback.press();
+  }
+
+  onDrag(point: PointerPoint): void {
+    if (this.modal) return;
+    if (point.y < this.layout.headerBottom || point.y > this.layout.dockRect.y) {
+      this.lastDrag = null;
+      return;
+    }
+    this.panHintUntil = 0;
+    if (!this.lastDrag) {
+      this.lastDrag = { x: point.x, y: point.y };
+      return;
+    }
+    const dx = point.x - this.lastDrag.x;
+    this.lastDrag = { x: point.x, y: point.y };
+    this.camera = panCamera(this.camera, dx, this.layout.cameraBounds);
+  }
+
+  onPinch(event: PinchEvent): void {
+    if (this.modal) return;
+    this.panHintUntil = 0;
+    if (this.pinchBaseZoom === null) this.pinchBaseZoom = this.camera.zoom;
+    this.camera = zoomAt(
+      this.camera,
+      this.pinchBaseZoom * event.scale,
+      event.centerX,
+      event.centerY,
+      this.layout.cameraBounds,
+      this.layout.focusY,
+    );
+  }
+
+  onRelease(): void {
+    this.pressedNav = null;
+    this.lastDrag = null;
+    this.pinchBaseZoom = null;
+  }
+
+  private handleNav(id: NavId): void {
+    if (id === 'rank') {
+      this.services.feedback.tap();
+      this.openRank();
+      return;
+    }
+    if (id === 'shop') {
+      this.services.feedback.tap();
+      this.openShop(this.shopTab);
+      return;
+    }
+    this.services.feedback.invalid();
+    this.showToast(`${id === 'daily' ? '每日委托' : '收集册'}即将开放`);
+  }
+
+  private royalMood(): RoyalMood {
+    const loop = this.pulse % 14;
+    return loop > 11 ? 'happy' : 'idle';
+  }
+
+  private openShop(tab: ShopTab): void {
+    this.modal = 'shop';
+    this.shopTab = tab;
+    this.shopHits = [];
+  }
+
+  private handleShopTap(x: number, y: number): void {
+    for (const hit of this.shopHits) {
+      if (!pointInRect(x, y, hit.rect)) continue;
+      if (hit.kind === 'close') {
         this.services.feedback.tap();
-        this.openRank();
+        this.modal = null;
+        return;
+      }
+      if (hit.kind === 'tab') {
+        this.services.feedback.tap();
+        this.shopTab = hit.id as ShopTab;
+        return;
+      }
+      const profile = this.services.profile;
+      let result: ShopResult;
+      if (hit.kind === 'build') {
+        result = upgradeBuildTrack(profile, hit.id as 'fountain' | 'lights' | 'garden');
+      } else if (hit.kind === 'outfit') {
+        result = buyOrEquipOutfit(profile, hit.id);
       } else {
-        this.services.feedback.invalid();
-        this.showToast(`${nav.label}即将开放`);
+        result = buyOrEquipIcon(profile, hit.id);
+      }
+      if (result === 'bought') this.services.feedback.reward();
+      else if (result === 'poor') this.services.feedback.invalid();
+      else this.services.feedback.tap();
+      this.showToast(resultMessage(result));
+      return;
+    }
+  }
+
+  private drawShop(ctx: CanvasRenderingContext2D, width: number, height: number): void {
+    ctx.fillStyle = 'rgba(58,46,42,0.35)';
+    ctx.fillRect(0, 0, width, height);
+
+    const panel = { x: 36, y: height / 2 - 360, w: width - 72, h: 720 };
+    drawPaperPanel(ctx, panel, {
+      fill: COLORS.paper,
+      radius: RADIUS.xl,
+      stitch: true,
+      seed: 821,
+    });
+    this.shopHits = [];
+
+    drawText(ctx, '王都小铺', panel.x + 32, panel.y + 50, {
+      size: FONT.title,
+      weight: '700',
+      color: COLORS.ink,
+    });
+    drawText(ctx, '只兑换外观，不影响分数与公平', panel.x + 32, panel.y + 84, {
+      size: 16,
+      color: COLORS.inkSoft,
+    });
+    drawWangduCoin(ctx, panel.x + panel.w - 118, panel.y + 50, 15);
+    drawText(ctx, `${this.services.profile.get().coins}`, panel.x + panel.w - 96, panel.y + 50, {
+      size: FONT.body,
+      weight: '700',
+      color: COLORS.ink,
+    });
+
+    const tabs: Array<[ShopTab, string]> = [
+      ['build', '建设'],
+      ['outfit', '装扮'],
+      ['icon', '图标'],
+    ];
+    const tabRects = drawSegmented(
+      ctx,
+      { x: panel.x + 32, y: panel.y + 108, w: panel.w - 64, h: 48 },
+      tabs.map(([, label]) => label),
+      tabs.findIndex(([id]) => id === this.shopTab),
+      COLORS.jade,
+    );
+    tabs.forEach(([id], index) => {
+      this.shopHits.push({ kind: 'tab', id, rect: tabRects[index] });
+    });
+
+    if (this.shopTab === 'build') this.drawBuildTab(ctx, panel);
+    else if (this.shopTab === 'outfit') this.drawOutfitTab(ctx, panel);
+    else this.drawIconTab(ctx, panel);
+
+    const close = { x: panel.x + 32, y: panel.y + panel.h - 70, w: panel.w - 64, h: 50 };
+    drawStickerButton(ctx, close, '关闭', { fontSize: FONT.body, seed: 823 });
+    this.shopHits.push({ kind: 'close', id: 'close', rect: close });
+  }
+
+  private drawBuildTab(ctx: CanvasRenderingContext2D, panel: Rect): void {
+    const build = this.services.profile.get().cosmetics.build;
+    BUILD_TRACKS.forEach((track, index) => {
+      const row = {
+        x: panel.x + 24,
+        y: panel.y + 170 + index * 136,
+        w: panel.w - 48,
+        h: 124,
+      };
+      inkRoundRect(ctx, row.x, row.y, row.w, row.h, RADIUS.lg, 'rgba(255,253,248,0.8)', {
+        stroke: 'rgba(58,46,42,0.14)',
+        width: 1.8,
+        seed: 827 + index,
+      });
+      drawText(ctx, track.name, row.x + 20, row.y + 28, {
+        size: FONT.body,
+        weight: '700',
+        color: COLORS.ink,
+      });
+      drawText(ctx, track.description, row.x + 20, row.y + 58, {
+        size: 15,
+        color: COLORS.inkSoft,
+        maxWidth: row.w - 180,
+      });
+
+      const level = build[track.id];
+      for (let i = 0; i < 3; i += 1) {
+        ctx.beginPath();
+        ctx.arc(row.x + 28 + i * 20, row.y + 88, 6, 0, Math.PI * 2);
+        ctx.fillStyle = i < level ? COLORS.jade : 'rgba(58,46,42,0.16)';
+        ctx.fill();
+      }
+      drawText(ctx, track.levelNames[level], row.x + 92, row.y + 88, {
+        size: 16,
+        color: COLORS.jade,
+        weight: '700',
+      });
+
+      const cost = nextBuildCost(track, level);
+      const button = {
+        x: row.x + row.w - 134,
+        y: row.y + 72,
+        w: 112,
+        h: 44,
+      };
+      drawStickerButton(ctx, button, cost === null ? '已满级' : `${cost} 王都币`, {
+        fill: cost === null ? 'rgba(58,46,42,0.10)' : COLORS.gold,
+        textColor: cost === null ? COLORS.inkSoft : COLORS.honeyDeep,
+        fontSize: 16,
+        radius: RADIUS.md,
+        disabled: cost === null,
+        seed: 831 + index,
+      });
+      if (cost !== null) {
+        this.shopHits.push({ kind: 'build', id: track.id, rect: button });
+      }
+    });
+  }
+
+  private drawOutfitTab(ctx: CanvasRenderingContext2D, panel: Rect): void {
+    const state = this.services.profile.get().cosmetics;
+    const cardW = (panel.w - 48 - 24) / 2;
+    OUTFITS.forEach((outfit, index) => {
+      const col = index % 2;
+      const rowIndex = Math.floor(index / 2);
+      const card = {
+        x: panel.x + 24 + col * (cardW + 24),
+        y: panel.y + 170 + rowIndex * 188,
+        w: cardW,
+        h: 172,
+      };
+      const owned = state.ownedOutfits.includes(outfit.id);
+      const equipped = state.royalOutfit === outfit.id;
+      inkRoundRect(
+        ctx,
+        card.x,
+        card.y,
+        card.w,
+        card.h,
+        RADIUS.lg,
+        equipped ? 'rgba(242,193,78,0.22)' : 'rgba(255,253,248,0.82)',
+        {
+          stroke: equipped ? 'rgba(185,134,47,0.55)' : 'rgba(58,46,42,0.14)',
+          width: equipped ? 2.4 : 1.8,
+          seed: 841 + index,
+        },
+      );
+      drawRoyalPair(
+        ctx,
+        card.x + card.w / 2,
+        card.y + 104,
+        0.42,
+        outfit.id as RoyalOutfitId,
+        'happy',
+        this.pulse,
+        this.services.quality.reducedMotion,
+      );
+      drawText(ctx, outfit.name, card.x + 16, card.y + 124, {
+        size: FONT.body,
+        weight: '700',
+        color: COLORS.ink,
+      });
+      const status = equipped ? '使用中' : owned ? '点击使用' : `${outfit.price} 王都币`;
+      drawText(ctx, status, card.x + 16, card.y + 154, {
+        size: 16,
+        color: equipped ? COLORS.jade : owned ? COLORS.inkSoft : COLORS.honeyDeep,
+        weight: equipped ? '700' : 'normal',
+      });
+      this.shopHits.push({ kind: 'outfit', id: outfit.id, rect: card });
+    });
+  }
+
+  private drawIconTab(ctx: CanvasRenderingContext2D, panel: Rect): void {
+    const state = this.services.profile.get().cosmetics;
+    const cardW = (panel.w - 48 - 24) / 3;
+    ICON_STYLES.forEach((icon, index) => {
+      const card = {
+        x: panel.x + 24 + index * (cardW + 12),
+        y: panel.y + 176,
+        w: cardW,
+        h: 300,
+      };
+      const owned = state.ownedIcons.includes(icon.id);
+      const equipped = state.iconStyle === icon.id;
+      inkRoundRect(
+        ctx,
+        card.x,
+        card.y,
+        card.w,
+        card.h,
+        RADIUS.lg,
+        equipped ? 'rgba(242,193,78,0.22)' : 'rgba(255,253,248,0.82)',
+        {
+          stroke: equipped ? 'rgba(185,134,47,0.55)' : 'rgba(58,46,42,0.14)',
+          width: equipped ? 2.4 : 1.8,
+          seed: 851 + index,
+        },
+      );
+      ctx.beginPath();
+      ctx.arc(card.x + card.w / 2, card.y + 84, 54, 0, Math.PI * 2);
+      ctx.fillStyle = COLORS.paper;
+      ctx.fill();
+      drawGameIcon(
+        ctx,
+        'match3',
+        card.x + card.w / 2,
+        card.y + 84,
+        58,
+        { main: COLORS.jade, soft: COLORS.mint, deep: COLORS.teal },
+        icon.id,
+      );
+      drawText(ctx, icon.name, card.x + card.w / 2, card.y + 168, {
+        size: FONT.body,
+        weight: '700',
+        color: COLORS.ink,
+        align: 'center',
+      });
+      drawText(ctx, icon.description, card.x + card.w / 2, card.y + 204, {
+        size: 14,
+        color: COLORS.inkSoft,
+        align: 'center',
+        maxWidth: card.w - 28,
+      });
+      const status = equipped ? '使用中' : owned ? '点击使用' : `${icon.price} 王都币`;
+      drawText(ctx, status, card.x + card.w / 2, card.y + 254, {
+        size: 16,
+        color: equipped ? COLORS.jade : owned ? COLORS.inkSoft : COLORS.honeyDeep,
+        align: 'center',
+        weight: '700',
+      });
+      this.shopHits.push({ kind: 'icon', id: icon.id, rect: card });
+    });
+  }
+
+  private openNamePicker(): void {
+    const profile = this.services.profile.get();
+    this.nameCandidates = generateNameCandidates(profile.playerId, 3);
+    this.nameSelected = 0;
+    this.modal = 'name';
+    this.nameHits = [];
+  }
+
+  private useName(): void {
+    if (this.nameBusy || this.nameCandidates.length === 0) return;
+    const chosen = this.nameCandidates[this.nameSelected] ?? this.nameCandidates[0];
+    this.services.profile.setDisplayName(chosen, false);
+    this.modal = null;
+    this.showToast('名字已更换');
+    this.services.feedback.reward();
+
+    if (!this.services.cloud.online) return;
+    this.nameBusy = true;
+    void this.services.cloud.rename(chosen).then((name) => {
+      this.nameBusy = false;
+      if (!name) return;
+      this.services.profile.setDisplayName(name, true);
+      if (name !== chosen) this.showToast(`云端已换成唯一名字：${name}`);
+    });
+  }
+
+  private drawNamePicker(ctx: CanvasRenderingContext2D, width: number, height: number): void {
+    ctx.fillStyle = 'rgba(58,46,42,0.38)';
+    ctx.fillRect(0, 0, width, height);
+    const panel = { x: 80, y: height / 2 - 300, w: width - 160, h: 600 };
+    drawPaperPanel(ctx, panel, {
+      fill: COLORS.paper,
+      radius: RADIUS.xl,
+      stitch: true,
+      seed: 861,
+    });
+    this.nameHits = [];
+
+    drawText(ctx, '王都居民名册', panel.x + 32, panel.y + 56, {
+      size: FONT.title,
+      weight: '700',
+      color: COLORS.ink,
+    });
+    drawText(ctx, '名字都来自王都名册，不会和别的居民重复', panel.x + 32, panel.y + 92, {
+      size: 16,
+      color: COLORS.inkSoft,
+    });
+    drawText(ctx, this.services.profile.get().displayName, panel.x + 32, panel.y + 138, {
+      size: FONT.subtitle,
+      weight: '700',
+      color: COLORS.jade,
+    });
+
+    this.nameCandidates.forEach((name, index) => {
+      const rect = {
+        x: panel.x + 32,
+        y: panel.y + 172 + index * 88,
+        w: panel.w - 64,
+        h: 72,
+      };
+      const selected = index === this.nameSelected;
+      inkRoundRect(
+        ctx,
+        rect.x,
+        rect.y,
+        rect.w,
+        rect.h,
+        RADIUS.md,
+        selected ? 'rgba(47,143,123,0.16)' : 'rgba(255,253,248,0.8)',
+        {
+          stroke: selected ? COLORS.jade : 'rgba(58,46,42,0.14)',
+          width: selected ? 2.4 : 1.8,
+          seed: 863 + index,
+        },
+      );
+      drawText(ctx, name, rect.x + 20, rect.y + 36, {
+        size: FONT.body,
+        weight: selected ? '700' : 'normal',
+        color: COLORS.ink,
+      });
+      this.nameHits.push({ kind: 'candidate', index, rect });
+    });
+
+    const reroll = { x: panel.x + 32, y: panel.y + 458, w: 220, h: 56 };
+    drawStickerButton(ctx, reroll, '换一批', {
+      fill: COLORS.paper,
+      textColor: COLORS.inkSoft,
+      fontSize: FONT.body,
+      radius: RADIUS.md,
+      seed: 871,
+    });
+    this.nameHits.push({ kind: 'reroll', index: -1, rect: reroll });
+
+    const use = { x: panel.x + panel.w - 252, y: panel.y + 458, w: 220, h: 56 };
+    drawStickerButton(ctx, use, '使用这个名字', {
+      fontSize: FONT.body,
+      radius: RADIUS.md,
+      seed: 873,
+    });
+    this.nameHits.push({ kind: 'use', index: -1, rect: use });
+
+    const close = { x: panel.x + panel.w / 2 - 110, y: panel.y + panel.h - 70, w: 220, h: 46 };
+    drawStickerButton(ctx, close, '关闭', {
+      fill: COLORS.paper,
+      textColor: COLORS.inkSoft,
+      fontSize: 18,
+      radius: RADIUS.md,
+      seed: 877,
+    });
+    this.nameHits.push({ kind: 'close', index: -1, rect: close });
+  }
+
+  private handleNameTap(x: number, y: number): void {
+    for (const hit of this.nameHits) {
+      if (!pointInRect(x, y, hit.rect)) continue;
+      if (hit.kind === 'candidate') {
+        this.nameSelected = hit.index;
+        this.services.feedback.tap();
+      } else if (hit.kind === 'reroll') {
+        this.services.feedback.tap();
+        const profile = this.services.profile.get();
+        this.nameCandidates = generateNameCandidates(profile.playerId, 3);
+        this.nameSelected = 0;
+      } else if (hit.kind === 'use') {
+        this.useName();
+      } else {
+        this.services.feedback.tap();
+        this.modal = 'settings';
       }
       return;
     }
   }
 
-  private openRank(): void {
-    this.modal = 'rank';
-    this.rankEntries = [];
-    this.rankMessage = '';
-    this.rankLoading = true;
-    this.services.analytics.track('leaderboard_open', { game: 'match3' });
-
-    void this.services.cloud
-      .fetchLeaderboard('match3', this.services.time.weekKey(), 20)
-      .then((entries) => {
-      this.rankLoading = false;
-      if (!entries) {
-        this.rankMessage = this.services.cloud.online
-          ? '排行榜加载失败，稍后再试'
-          : '离线模式，排行榜暂时不可用';
-        return;
-      }
-      this.rankEntries = entries;
-      if (entries.length === 0) this.rankMessage = '这周还没有人上榜，去玩一局吧';
-    });
-  }
-
-  private drawBackground(
-    ctx: CanvasRenderingContext2D,
-    width: number,
-    height: number,
-    safeTop: number,
-  ): void {
-    const gradient = ctx.createLinearGradient(0, 0, 0, height);
-    gradient.addColorStop(0, '#FFF9EF');
-    gradient.addColorStop(0.55, '#F3FAF3');
-    gradient.addColorStop(1, '#E4F4EC');
-    ctx.fillStyle = gradient;
-    ctx.fillRect(0, 0, width, height);
-
-    ctx.save();
-    ctx.globalAlpha = 0.45;
-    ctx.beginPath();
-    ctx.arc(width - 110, safeTop + 90, 74, 0, Math.PI * 2);
-    ctx.fillStyle = '#FFE3A8';
-    ctx.fill();
-    ctx.restore();
-
-    // 三层视差：远景云海 / 中景山丘 / 前景草地，位移幅度依次放大。
-    const drift = this.services.quality.reducedMotion ? 0 : 1;
-    const far = Math.sin(this.pulse * 0.22) * 10 * drift;
-    const mid = Math.sin(this.pulse * 0.34) * 18 * drift;
-    const near = Math.sin(this.pulse * 0.5) * 26 * drift;
-
-    this.drawCloud(ctx, 110 + far, safeTop + 250, 1);
-    this.drawCloud(ctx, width - 90 + far * 0.8, safeTop + 360, 0.8);
-
-    ctx.beginPath();
-    ctx.moveTo(0, height * 0.78 + mid * 0.15);
-    ctx.quadraticCurveTo(width * 0.25, height * 0.72 + mid * 0.15, width * 0.5, height * 0.78 + mid * 0.15);
-    ctx.quadraticCurveTo(width * 0.75, height * 0.84 + mid * 0.15, width, height * 0.76 + mid * 0.15);
-    ctx.lineTo(width, height);
-    ctx.lineTo(0, height);
-    ctx.closePath();
-    ctx.fillStyle = 'rgba(168,230,207,0.34)';
-    ctx.fill();
-
-    ctx.beginPath();
-    ctx.moveTo(-near * 0.4, height * 0.86);
-    ctx.quadraticCurveTo(width * 0.3, height * 0.8, width * 0.62, height * 0.86);
-    ctx.quadraticCurveTo(width * 0.84, height * 0.9, width + near * 0.4, height * 0.84);
-    ctx.lineTo(width, height);
-    ctx.lineTo(0, height);
-    ctx.closePath();
-    ctx.fillStyle = 'rgba(127,191,106,0.20)';
-    ctx.fill();
-  }
-
-  private drawCloud(ctx: CanvasRenderingContext2D, x: number, y: number, scale: number): void {
-    ctx.save();
-    ctx.globalAlpha = 0.55;
-    ctx.fillStyle = COLORS.paper;
-    const parts: Array<[number, number, number]> = [
-      [0, 0, 42],
-      [46, -16, 52],
-      [96, 4, 38],
-      [42, 10, 40],
-    ];
-    for (const [dx, dy, radius] of parts) {
-      ctx.beginPath();
-      ctx.arc(x + dx * scale, y + dy * scale, radius * scale, 0, Math.PI * 2);
-      ctx.fill();
-    }
-    ctx.restore();
-  }
-
-  private drawHeader(ctx: CanvasRenderingContext2D, safeTop: number): void {
-    drawText(ctx, '休闲王都', 40, safeTop + 58, {
-      size: FONT.display,
-      weight: '700',
-      color: COLORS.ink,
-    });
-    drawText(ctx, '选一个场馆，开始今天的轻松一刻', 40, safeTop + 108, {
-      size: FONT.caption,
-      color: COLORS.inkSoft,
-    });
-
-    drawPanel(ctx, this.starRect, { fill: COLORS.paper, radius: 26 });
-    drawCoin(ctx, this.starRect.x + 30, this.starRect.y + 26, 16);
-    drawText(ctx, `${this.services.profile.get().stardust}`, this.starRect.x + 58, this.starRect.y + 27, {
-      size: FONT.body,
-      weight: '700',
-      color: COLORS.ink,
-    });
-
-    drawPanel(ctx, this.settingsRect, { fill: COLORS.paper, radius: 32 });
-    const cx = this.settingsRect.x + 32;
-    const cy = this.settingsRect.y + 32;
-    ctx.save();
-    ctx.strokeStyle = COLORS.inkSoft;
-    ctx.lineWidth = 3;
-    ctx.beginPath();
-    ctx.arc(cx, cy, 10, 0, Math.PI * 2);
-    ctx.stroke();
-    for (let i = 0; i < 8; i += 1) {
-      const angle = (Math.PI * 2 * i) / 8;
-      ctx.beginPath();
-      ctx.moveTo(cx + Math.cos(angle) * 15, cy + Math.sin(angle) * 15);
-      ctx.lineTo(cx + Math.cos(angle) * 21, cy + Math.sin(angle) * 21);
-      ctx.stroke();
-    }
-    ctx.restore();
-  }
-
-  private drawVenue(ctx: CanvasRenderingContext2D, card: VenueCard): void {
-    const { rect, entry, accent } = card;
-    const playable = entry.status === 'playable';
-
-    drawPanel(ctx, rect, { fill: COLORS.paper, radius: RADIUS.xl });
-
-    ctx.save();
-    roundRectPath(ctx, rect.x, rect.y, rect.w, rect.h, RADIUS.xl);
-    ctx.clip();
-    ctx.fillStyle = accent.soft;
-    ctx.fillRect(rect.x, rect.y, rect.w, 108);
-    ctx.restore();
-    strokeRoundRect(ctx, rect, 'rgba(58,46,42,0.16)', 2, RADIUS.xl);
-
-    const iconX = rect.x + 58;
-    const iconY = rect.y + 58;
-    ctx.save();
-    ctx.globalAlpha = playable ? 1 : 0.55;
-    ctx.beginPath();
-    ctx.arc(iconX, iconY, 38, 0, Math.PI * 2);
-    ctx.fillStyle = COLORS.paper;
-    ctx.fill();
-    ctx.strokeStyle = accent.main;
-    ctx.lineWidth = 3;
-    ctx.stroke();
-    this.drawGameIcon(ctx, entry.id, iconX, iconY, 28, accent);
-    ctx.restore();
-
-    const pillW = 118;
-    const pillRect = {
-      x: rect.x + rect.w - pillW - 24,
-      y: rect.y + 26,
-      w: pillW,
-      h: 42,
-    };
-    fillRoundRect(ctx, pillRect, playable ? accent.main : 'rgba(58,46,42,0.10)', 21);
-    drawText(ctx, playable ? '可游玩' : '即将开放', pillRect.x + pillRect.w / 2, pillRect.y + 21, {
-      size: 18,
-      color: playable ? COLORS.paper : COLORS.inkSoft,
-      align: 'center',
-      weight: '700',
-    });
-
-    drawText(ctx, entry.title, rect.x + 28, rect.y + 158, {
-      size: FONT.title,
-      weight: '700',
-      color: COLORS.ink,
-      maxWidth: rect.w - 56,
-    });
-    drawText(ctx, entry.subtitle, rect.x + 28, rect.y + 200, {
-      size: FONT.caption,
-      color: COLORS.inkSoft,
-      maxWidth: rect.w - 56,
-    });
-
-    const barRect = { x: rect.x + 28, y: rect.y + 246, w: rect.w - 84, h: 12 };
-    fillRoundRect(ctx, barRect, 'rgba(58,46,42,0.10)', 6);
-    fillRoundRect(
-      ctx,
-      { ...barRect, w: playable ? barRect.w * 0.22 : 0 },
-      accent.main,
-      6,
-    );
-
-    if (playable) {
-      const glow = 0.5 + Math.sin(this.pulse * 2.4) * 0.2;
-      ctx.save();
-      ctx.globalAlpha = glow;
-      ctx.beginPath();
-      ctx.arc(rect.x + rect.w - 44, rect.y + rect.h - 44, 22, 0, Math.PI * 2);
-      ctx.fillStyle = accent.main;
-      ctx.fill();
-      ctx.fillStyle = COLORS.paper;
-      ctx.beginPath();
-      ctx.moveTo(rect.x + rect.w - 49, rect.y + rect.h - 55);
-      ctx.lineTo(rect.x + rect.w - 49, rect.y + rect.h - 33);
-      ctx.lineTo(rect.x + rect.w - 32, rect.y + rect.h - 44);
-      ctx.closePath();
-      ctx.fill();
-      ctx.restore();
-    } else {
-      drawText(ctx, '装修中', rect.x + rect.w - 28, rect.y + rect.h - 28, {
-        size: 18,
-        color: COLORS.inkSoft,
-        align: 'right',
-      });
-    }
-  }
-
-  private drawGameIcon(
-    ctx: CanvasRenderingContext2D,
-    id: string,
-    cx: number,
-    cy: number,
-    size: number,
-    accent: Accent,
-  ): void {
-    switch (id) {
-      case 'match3':
-        drawStar(ctx, cx, cy, size, size * 0.46, COLORS.gold);
-        drawDiamond(ctx, cx - size * 0.95, cy + size * 0.72, size * 0.34, COLORS.berry);
-        drawDiamond(ctx, cx + size * 0.95, cy + size * 0.72, size * 0.34, COLORS.mint);
-        break;
-      case 'garden':
-        drawPetal(ctx, cx, cy, size, COLORS.petal);
-        break;
-      case 'merge':
-        drawHex(ctx, cx, cy, size, accent.main);
-        drawHex(ctx, cx, cy, size * 0.52, COLORS.honey);
-        break;
-      case 'aquarium':
-        drawFish(ctx, cx, cy, size * 0.9, accent.main);
-        break;
-      default:
-        drawBerry(ctx, cx, cy, size * 0.8, accent.main);
-        break;
-    }
-  }
-
-  private drawNav(ctx: CanvasRenderingContext2D): void {
-    for (const nav of this.navs) {
-      drawPanel(ctx, nav.rect, { fill: COLORS.paper, radius: RADIUS.lg });
-      const cx = nav.rect.x + nav.rect.w / 2;
-      const cy = nav.rect.y + 26;
-      if (nav.label === '每日委托') {
-        drawStar(ctx, cx, cy, 15, 7, COLORS.gold);
-      } else if (nav.label === '收集册') {
-        drawPetal(ctx, cx, cy, 15, COLORS.petal);
-      } else {
-        const bars = [10, 18, 26];
-        bars.forEach((height, index) => {
-          fillRoundRect(
-            ctx,
-            { x: cx - 15 + index * 12, y: cy + 14 - height, w: 8, h: height },
-            index === 2 ? COLORS.jade : COLORS.mint,
-            4,
-          );
-        });
-      }
-      drawText(ctx, nav.label, cx, nav.rect.y + 60, {
-        size: FONT.caption,
-        color: COLORS.inkSoft,
-        align: 'center',
-      });
-    }
-  }
-
-  private drawToast(ctx: CanvasRenderingContext2D, width: number, height: number): void {
-    if (!this.toast || Date.now() >= this.toast.until) return;
-    const textWidth = Math.min(width - 120, Math.max(340, this.toast.text.length * 26 + 64));
-    const rect = { x: (width - textWidth) / 2, y: height - 230, w: textWidth, h: 72 };
-    fillRoundRect(ctx, rect, 'rgba(58,46,42,0.88)', RADIUS.xl);
-    drawText(ctx, this.toast.text, width / 2, rect.y + rect.h / 2, {
-      size: FONT.body,
-      color: COLORS.paper,
-      align: 'center',
-      maxWidth: rect.w - SPACE.xl * 2,
-    });
-  }
-
   private drawSettings(ctx: CanvasRenderingContext2D, width: number, height: number): void {
-    ctx.fillStyle = 'rgba(58,46,42,0.35)';
+    ctx.fillStyle = 'rgba(58,46,42,0.38)';
     ctx.fillRect(0, 0, width, height);
 
-    const panel = { x: 75, y: height / 2 - 340, w: width - 150, h: 680 };
-    drawPanel(ctx, panel, { fill: COLORS.paper, radius: RADIUS.xl });
+    const panel = { x: 62, y: Math.max(180, height / 2 - 440), w: width - 124, h: 880 };
+    drawPaperPanel(ctx, panel, {
+      fill: COLORS.paper,
+      radius: RADIUS.xl,
+      stitch: true,
+      seed: 801,
+    });
 
-    drawText(ctx, '设置', panel.x + 40, panel.y + 62, {
+    drawText(ctx, '设置', panel.x + 32, panel.y + 50, {
       size: FONT.title,
       weight: '700',
       color: COLORS.ink,
     });
+    drawWoodRibbon(ctx, { x: panel.x + panel.w - 150, y: panel.y + 30, w: 118, h: 30 }, '王都设置');
+
+    const tabRects = drawSegmented(
+      ctx,
+      { x: panel.x + 28, y: panel.y + 78, w: panel.w - 56, h: 44 },
+      ['声音', '画面', '数据'],
+      this.settingsTab === 'sound' ? 0 : this.settingsTab === 'visual' ? 1 : 2,
+      COLORS.jade,
+    );
+    this.tabSoundRect = tabRects[0];
+    this.tabVisualRect = tabRects[1];
+    this.tabDataRect = tabRects[2];
 
     const settings = this.services.profile.get().settings;
-    this.musicRect = { x: panel.x + 28, y: panel.y + 104, w: panel.w - 56, h: 68 };
-    this.sfxRect = { x: panel.x + 28, y: panel.y + 176, w: panel.w - 56, h: 68 };
-    this.hapticsRect = { x: panel.x + 28, y: panel.y + 248, w: panel.w - 56, h: 68 };
-    this.motionRect = { x: panel.x + 28, y: panel.y + 320, w: panel.w - 56, h: 68 };
+    const qualityIndex =
+      settings.quality === 'high' ? 1 : settings.quality === 'mid' ? 2 : settings.quality === 'low' ? 3 : 0;
 
-    this.drawSettingRow(ctx, this.musicRect, '音乐', '大厅与小游戏的背景音乐', settings.music);
-    this.drawSettingRow(ctx, this.sfxRect, '音效', '点击、奖励与提示音', settings.sfx);
-    this.drawSettingRow(ctx, this.hapticsRect, '震动', '消除与成功时的轻震动', settings.haptics);
-    this.drawSettingRow(
-      ctx,
-      this.motionRect,
-      '减少动效',
-      '关闭缩放/粒子/震动，省电且更稳',
-      settings.reducedMotion,
-    );
+    if (this.settingsTab === 'sound') {
+      this.nameRowRect = { x: panel.x + 28, y: panel.y + 142, w: panel.w - 56, h: 76 };
+      inkRoundRect(ctx, this.nameRowRect.x, this.nameRowRect.y, this.nameRowRect.w, this.nameRowRect.h, RADIUS.md, 'rgba(255,253,248,0.8)', {
+        stroke: 'rgba(58,46,42,0.14)',
+        width: 1.8,
+        seed: 807,
+      });
+      drawText(ctx, '名字', this.nameRowRect.x + 16, this.nameRowRect.y + 25, {
+        size: 18,
+        weight: '700',
+        color: COLORS.ink,
+      });
+      drawText(ctx, this.services.profile.get().displayName, this.nameRowRect.x + 16, this.nameRowRect.y + 53, {
+        size: 16,
+        color: COLORS.inkSoft,
+        maxWidth: 320,
+      });
+      this.changeNameRect = {
+        x: this.nameRowRect.x + this.nameRowRect.w - 122,
+        y: this.nameRowRect.y + 18,
+        w: 104,
+        h: 40,
+      };
+      drawStickerButton(ctx, this.changeNameRect, '更换', { fontSize: 16, seed: 809 });
 
-    this.privacyRect = { x: panel.x + 40, y: panel.y + 408, w: panel.w - 80, h: 48 };
-    this.deleteRect = { x: panel.x + 40, y: panel.y + 462, w: panel.w - 80, h: 48 };
+      this.musicRect = { x: panel.x + 28, y: panel.y + 238, w: panel.w - 56, h: 70 };
+      this.sfxRect = { x: panel.x + 28, y: panel.y + 318, w: panel.w - 56, h: 70 };
+      this.hapticsRect = { x: panel.x + 28, y: panel.y + 398, w: panel.w - 56, h: 70 };
+      this.motionRect = { x: panel.x + 28, y: panel.y + 478, w: panel.w - 56, h: 70 };
+      drawSettingRow(ctx, this.musicRect, '音乐', '大厅与小游戏的背景音乐', settings.music);
+      drawSettingRow(ctx, this.sfxRect, '音效', '点击、奖励与提示音', settings.sfx);
+      drawSettingRow(ctx, this.hapticsRect, '震动', '消除与成功时的轻震动', settings.haptics);
+      drawSettingRow(
+        ctx,
+        this.motionRect,
+        '减少动效',
+        '关闭粒子/缩放/震动，只保留必要淡入',
+        settings.reducedMotion,
+      );
+      drawDivider(ctx, panel.x + 28, panel.y + 574, panel.w - 56);
+      drawText(ctx, '音量与震动只影响反馈，不影响玩法结果。', panel.x + 34, panel.y + 606, {
+        size: 15,
+        color: COLORS.inkSoft,
+      });
+    } else if (this.settingsTab === 'visual') {
+      this.performanceRect = { x: panel.x + 28, y: panel.y + 142, w: panel.w - 56, h: 70 };
+      drawSettingRow(
+        ctx,
+        this.performanceRect,
+        '性能模式',
+        '一键低档：关环境粒子/场景动画/纸纹',
+        settings.performanceMode,
+        { accent: COLORS.honeyDeep },
+      );
 
-    this.drawLinkRow(ctx, this.privacyRect, '隐私协议', '查看');
-    this.drawLinkRow(ctx, this.deleteRect, '删除本地数据', '仅清除本机存档');
+      drawText(ctx, '画面档位', panel.x + 34, panel.y + 238, {
+        size: 16,
+        weight: '700',
+        color: COLORS.ink,
+      });
+      drawText(ctx, '自动按设备性能选择；手动档位会立即生效', panel.x + 34, panel.y + 262, {
+        size: 13,
+        color: COLORS.inkSoft,
+      });
+      this.qualityRects = drawSegmented(
+        ctx,
+        { x: panel.x + 28, y: panel.y + 282, w: panel.w - 56, h: 44 },
+        ['自动', '高', '中', '低'],
+        qualityIndex,
+        COLORS.jade,
+      );
 
-    const stats = this.services.debugStats?.();
-    const cloudLine = `云服务：${this.cloudStatusText()}`;
-    const perfLine = stats
-      ? ` · 档位 ${stats.tier} · FPS ${stats.fps} · 粒子 ${stats.particles}`
-      : '';
-    drawText(ctx, cloudLine + perfLine, panel.x + 40, panel.y + 534, {
-      size: 17,
-      color: COLORS.inkSoft,
-      maxWidth: panel.w - 80,
-    });
+      const disabled = settings.reducedMotion || settings.performanceMode;
+      this.ambientRect = { x: panel.x + 28, y: panel.y + 346, w: panel.w - 56, h: 70 };
+      this.sceneRect = { x: panel.x + 28, y: panel.y + 426, w: panel.w - 56, h: 70 };
+      this.textureRect = { x: panel.x + 28, y: panel.y + 506, w: panel.w - 56, h: 70 };
+      this.shakeRect = { x: panel.x + 28, y: panel.y + 586, w: panel.w - 56, h: 70 };
+      drawSettingRow(ctx, this.ambientRect, '环境粒子', '花瓣、萤火虫、喷泉水花', settings.ambientEffects, { disabled });
+      drawSettingRow(ctx, this.sceneRect, '场景动画', '云、喷泉、招牌、居民、烟雾', settings.sceneMotion, { disabled });
+      drawSettingRow(ctx, this.textureRect, '纸纹与装饰', '纸纹、远景屋顶、前景小花', settings.textureDetail, { disabled });
+      drawSettingRow(ctx, this.shakeRect, '屏幕震动', '奖励与失败时的轻震动', settings.screenShake, { disabled });
 
-    drawText(ctx, `版本 ${GAME_VERSION}`, panel.x + 40, panel.y + 562, {
-      size: 17,
-      color: COLORS.inkSoft,
-    });
+      const stats = this.services.debugStats?.();
+      drawTapeNote(
+        ctx,
+        { x: panel.x + 60, y: panel.y + 676, w: panel.w - 120, h: 66 },
+        [
+          stats
+            ? `当前 ${stats.tier} · ${stats.fps}fps · ${stats.particles} 粒子`
+            : '当前画质由设备自动判断',
+          '低端机建议开启性能模式',
+        ],
+        { align: 'center' },
+      );
+    } else {
+      this.privacyRect = { x: panel.x + 28, y: panel.y + 146, w: panel.w - 56, h: 64 };
+      this.deleteRect = { x: panel.x + 28, y: panel.y + 222, w: panel.w - 56, h: 64 };
+      this.drawLinkRow(ctx, this.privacyRect, '隐私协议', '查看');
+      this.drawLinkRow(ctx, this.deleteRect, '删除本地数据', '仅清除本机存档');
 
-    this.closeRect = { x: panel.x + 40, y: panel.y + 592, w: panel.w - 80, h: 64 };
-    fillRoundRect(ctx, this.closeRect, COLORS.jade, RADIUS.md);
-    drawText(ctx, '关闭', this.closeRect.x + this.closeRect.w / 2, this.closeRect.y + 32, {
-      size: FONT.subtitle,
-      color: COLORS.paper,
-      align: 'center',
-      weight: '700',
-    });
+      drawDivider(ctx, panel.x + 28, panel.y + 318, panel.w - 56);
+      const stats = this.services.debugStats?.();
+      const cloudLine = `云服务：${this.cloudStatusText()}`;
+      drawText(ctx, cloudLine, panel.x + 34, panel.y + 352, {
+        size: 16,
+        color: COLORS.inkSoft,
+        maxWidth: panel.w - 68,
+      });
+      drawText(
+        ctx,
+        stats ? `档位 ${stats.tier} · FPS ${stats.fps} · 粒子 ${stats.particles}` : '档位自动',
+        panel.x + 34,
+        panel.y + 382,
+        { size: 14, color: COLORS.inkSoft, maxWidth: panel.w - 68 },
+      );
+      drawText(ctx, `版本 ${GAME_VERSION}`, panel.x + 34, panel.y + 412, {
+        size: 14,
+        color: COLORS.inkSoft,
+      });
+      drawTapeNote(
+        ctx,
+        { x: panel.x + 60, y: panel.y + 462, w: panel.w - 120, h: 92 },
+        ['只使用 openid', '不收集头像、昵称、手机号'],
+        { align: 'center' },
+      );
+    }
+
+    this.closeRect = { x: panel.x + 28, y: panel.y + 786, w: panel.w - 56, h: 58 };
+    drawStickerButton(ctx, this.closeRect, '关闭', { fontSize: FONT.body, seed: 811 });
   }
 
-  private drawPrivacy(
-    ctx: CanvasRenderingContext2D,
-    width: number,
-    height: number,
-  ): void {
+  private drawPrivacy(ctx: CanvasRenderingContext2D, width: number, height: number): void {
     ctx.fillStyle = 'rgba(58,46,42,0.35)';
     ctx.fillRect(0, 0, width, height);
 
     const panel = { x: 75, y: height / 2 - 260, w: width - 150, h: 520 };
-    drawPanel(ctx, panel, { fill: COLORS.paper, radius: RADIUS.xl });
+    drawPaperPanel(ctx, panel, {
+      fill: COLORS.paper,
+      radius: RADIUS.xl,
+      stitch: true,
+      seed: 881,
+    });
 
     drawText(ctx, '隐私协议', panel.x + 40, panel.y + 62, {
       size: FONT.title,
@@ -563,84 +1069,118 @@ export class LobbyScene implements Scene {
     const lines = [
       '休闲王都只使用微信 openid 保存游戏进度。',
       '不收集头像、昵称、手机号、位置或通讯录。',
+      '玩家名来自王都名册，不提供自由输入。',
       '本地存档保存在本机；开启云开发后用于同步。',
       '你可以在设置中删除本地数据。',
-      '正式发布前会补充完整隐私协议与数据删除说明。',
     ];
     lines.forEach((line, index) => {
       drawText(ctx, line, panel.x + 40, panel.y + 140 + index * 58, {
-        size: 22,
+        size: 21,
         color: index === lines.length - 1 ? COLORS.inkSoft : COLORS.ink,
         maxWidth: panel.w - 80,
       });
     });
 
     this.privacyCloseRect = { x: panel.x + 40, y: panel.y + 430, w: panel.w - 80, h: 64 };
-    fillRoundRect(ctx, this.privacyCloseRect, COLORS.jade, RADIUS.md);
-    drawText(
-      ctx,
-      '返回设置',
-      this.privacyCloseRect.x + this.privacyCloseRect.w / 2,
-      this.privacyCloseRect.y + 32,
-      {
-        size: FONT.subtitle,
-        color: COLORS.paper,
-        align: 'center',
-        weight: '700',
-      },
-    );
+    drawStickerButton(ctx, this.privacyCloseRect, '返回设置', {
+      fontSize: FONT.subtitle,
+      seed: 883,
+    });
   }
 
-  private handlePrivacyTap(x: number, y: number): void {
-    if (pointInRect(x, y, this.privacyCloseRect)) {
-      this.modal = 'settings';
-    }
+  private openRank(): void {
+    this.modal = 'rank';
+    this.services.analytics.track('leaderboard_open', { game: this.rankGameId });
+    this.loadRank(this.rankGameId);
+  }
+
+  private loadRank(gameId: string): void {
+    this.rankGameId = gameId;
+    this.rankEntries = [];
+    this.rankMessage = '';
+    this.rankLoading = true;
+    const requestId = ++this.rankRequestId;
+
+    void this.services.cloud.fetchLeaderboard(gameId, 20).then((entries) => {
+      // 快速切分类时只接受最后一次请求，避免旧结果覆盖新标签。
+      if (requestId !== this.rankRequestId) return;
+      this.rankLoading = false;
+      if (!entries) {
+        this.rankMessage = this.services.cloud.online
+          ? '排行榜加载失败，稍后再试'
+          : '离线模式，排行榜暂时不可用';
+        return;
+      }
+      this.rankEntries = entries;
+      if (entries.length === 0) {
+        this.rankMessage =
+          gameId === 'match3' ? '还没有人上榜，去玩一局吧' : '这个游戏还没有人上榜';
+      }
+    });
   }
 
   private drawRank(ctx: CanvasRenderingContext2D, width: number, height: number): void {
     ctx.fillStyle = 'rgba(58,46,42,0.35)';
     ctx.fillRect(0, 0, width, height);
 
-    const panel = { x: 75, y: height / 2 - 320, w: width - 150, h: 640 };
-    drawPanel(ctx, panel, { fill: COLORS.paper, radius: RADIUS.xl });
+    const panel = { x: 55, y: height / 2 - 320, w: width - 110, h: 640 };
+    drawPaperPanel(ctx, panel, {
+      fill: COLORS.paper,
+      radius: RADIUS.xl,
+      stitch: true,
+      seed: 887,
+    });
 
     drawText(ctx, '排行榜', panel.x + 40, panel.y + 62, {
       size: FONT.title,
       weight: '700',
       color: COLORS.ink,
     });
-    drawText(ctx, `王都三消 · ${this.services.time.weekKey()}`, panel.x + 40, panel.y + 100, {
-      size: 18,
+    drawText(ctx, '按游戏分类 · 每人只记最高分', panel.x + 40, panel.y + 98, {
+      size: 17,
       color: COLORS.inkSoft,
     });
 
+    const rankRects = drawSegmented(
+      ctx,
+      { x: panel.x + 40, y: panel.y + 116, w: panel.w - 80, h: 40 },
+      GAMES.map((game) => game.title),
+      GAMES.findIndex((game) => game.id === this.rankGameId),
+      COLORS.jade,
+    );
+    this.rankTabs = GAMES.map((game, index) => ({ id: game.id, rect: rankRects[index] }));
+
     if (this.rankLoading) {
-      drawText(ctx, '正在加载…', width / 2, panel.y + 220, {
+      drawText(ctx, '正在加载…', width / 2, panel.y + 250, {
         size: FONT.body,
         color: COLORS.inkSoft,
         align: 'center',
       });
     } else if (this.rankMessage) {
-      drawText(ctx, this.rankMessage, width / 2, panel.y + 220, {
+      drawText(ctx, this.rankMessage, width / 2, panel.y + 250, {
         size: FONT.body,
         color: COLORS.inkSoft,
         align: 'center',
         maxWidth: panel.w - 80,
       });
     } else {
-      drawText(ctx, '名次', panel.x + 52, panel.y + 132, {
-        size: 18,
+      drawText(ctx, '名次', panel.x + 52, panel.y + 182, {
+        size: 17,
         color: COLORS.inkSoft,
         align: 'center',
       });
-      drawText(ctx, '分数', panel.x + panel.w - 40, panel.y + 132, {
-        size: 18,
+      drawText(ctx, '居民', panel.x + 112, panel.y + 182, {
+        size: 17,
+        color: COLORS.inkSoft,
+      });
+      drawText(ctx, '分数', panel.x + panel.w - 40, panel.y + 182, {
+        size: 17,
         color: COLORS.inkSoft,
         align: 'right',
       });
 
       this.rankEntries.slice(0, 10).forEach((entry, index) => {
-        const rowY = panel.y + 172 + index * 44;
+        const rowY = panel.y + 214 + index * 34;
         const medal = index < 3 ? [COLORS.gold, '#C9CFD6', '#D8A47F'][index] : null;
         if (medal) {
           ctx.beginPath();
@@ -654,6 +1194,11 @@ export class LobbyScene implements Scene {
           color: medal ? COLORS.paper : COLORS.inkSoft,
           align: 'center',
         });
+        drawText(ctx, entry.name || '王都居民', panel.x + 112, rowY, {
+          size: 20,
+          color: COLORS.ink,
+          maxWidth: panel.w - 260,
+        });
         drawText(ctx, `${entry.score}`, panel.x + panel.w - 40, rowY, {
           size: FONT.subtitle,
           weight: '700',
@@ -664,19 +1209,10 @@ export class LobbyScene implements Scene {
     }
 
     this.rankCloseRect = { x: panel.x + 40, y: panel.y + 552, w: panel.w - 80, h: 64 };
-    fillRoundRect(ctx, this.rankCloseRect, COLORS.jade, RADIUS.md);
-    drawText(
-      ctx,
-      '关闭',
-      this.rankCloseRect.x + this.rankCloseRect.w / 2,
-      this.rankCloseRect.y + 32,
-      {
-        size: FONT.subtitle,
-        color: COLORS.paper,
-        align: 'center',
-        weight: '700',
-      },
-    );
+    drawStickerButton(ctx, this.rankCloseRect, '关闭', {
+      fontSize: FONT.subtitle,
+      seed: 889,
+    });
   }
 
   private cloudStatusText(): string {
@@ -693,32 +1229,6 @@ export class LobbyScene implements Scene {
     return '未连接（检查云函数）';
   }
 
-  private drawSettingRow(
-    ctx: CanvasRenderingContext2D,
-    rect: Rect,
-    label: string,
-    hint: string,
-    enabled: boolean,
-  ): void {
-    drawText(ctx, label, rect.x + 8, rect.y + 24, {
-      size: FONT.body,
-      weight: '700',
-      color: COLORS.ink,
-    });
-    drawText(ctx, hint, rect.x + 8, rect.y + 54, {
-      size: 18,
-      color: COLORS.inkSoft,
-    });
-
-    const toggle = { x: rect.x + rect.w - 104, y: rect.y + 18, w: 96, h: 44 };
-    fillRoundRect(ctx, toggle, enabled ? COLORS.jade : 'rgba(58,46,42,0.16)', 22);
-    const knobX = enabled ? toggle.x + toggle.w - 22 : toggle.x + 22;
-    ctx.beginPath();
-    ctx.arc(knobX, toggle.y + 22, 18, 0, Math.PI * 2);
-    ctx.fillStyle = COLORS.paper;
-    ctx.fill();
-  }
-
   private drawLinkRow(
     ctx: CanvasRenderingContext2D,
     rect: Rect,
@@ -730,7 +1240,7 @@ export class LobbyScene implements Scene {
       color: COLORS.ink,
     });
     drawText(ctx, hint, rect.x + rect.w, rect.y + 20, {
-      size: 18,
+      size: 17,
       color: COLORS.inkSoft,
       align: 'right',
     });
@@ -748,41 +1258,142 @@ export class LobbyScene implements Scene {
       this.modal = null;
       return;
     }
+    if (pointInRect(x, y, this.tabSoundRect)) {
+      this.services.feedback.tap();
+      this.settingsTab = 'sound';
+      return;
+    }
+    if (pointInRect(x, y, this.tabVisualRect)) {
+      this.services.feedback.tap();
+      this.settingsTab = 'visual';
+      return;
+    }
+    if (pointInRect(x, y, this.tabDataRect)) {
+      this.services.feedback.tap();
+      this.settingsTab = 'data';
+      return;
+    }
 
     const settings = this.services.profile.get().settings;
-    if (pointInRect(x, y, this.musicRect)) {
-      this.services.feedback.tap();
-      this.services.profile.updateSettings({ music: !settings.music });
-      this.services.audio.setMusic(!settings.music);
-      this.showToast(settings.music ? '音乐已关闭' : '音乐已开启');
-      return;
-    }
-    if (pointInRect(x, y, this.sfxRect)) {
-      this.services.feedback.tap();
-      this.services.profile.updateSettings({ sfx: !settings.sfx });
-      this.services.audio.setSfx(!settings.sfx);
-      this.showToast(settings.sfx ? '音效已关闭' : '音效已开启');
-      return;
-    }
-    if (pointInRect(x, y, this.hapticsRect)) {
-      this.services.profile.updateSettings({ haptics: !settings.haptics });
-      this.services.haptics.setEnabled(!settings.haptics);
-      this.services.feedback.tap();
-      this.showToast(settings.haptics ? '震动已关闭' : '震动已开启');
-      return;
-    }
-    if (pointInRect(x, y, this.motionRect)) {
-      this.services.feedback.tap();
-      this.services.profile.updateSettings({ reducedMotion: !settings.reducedMotion });
-      this.services.quality.setPreference(settings.reducedMotion ? 'auto' : 'reduced');
-      if (settings.reducedMotion) {
-        this.services.feedback.resetCombo();
-      } else {
-        this.services.particles.clear();
+
+    if (this.settingsTab === 'sound') {
+      if (pointInRect(x, y, this.changeNameRect)) {
+        this.services.feedback.tap();
+        this.openNamePicker();
+        return;
       }
-      this.showToast(settings.reducedMotion ? '动效已恢复' : '已开启减少动效');
+      if (pointInRect(x, y, this.musicRect)) {
+        this.services.feedback.tap();
+        this.services.profile.updateSettings({ music: !settings.music });
+        this.services.audio.setMusic(!settings.music);
+        this.showToast(settings.music ? '音乐已关闭' : '音乐已开启');
+        return;
+      }
+      if (pointInRect(x, y, this.sfxRect)) {
+        this.services.feedback.tap();
+        this.services.profile.updateSettings({ sfx: !settings.sfx });
+        this.services.audio.setSfx(!settings.sfx);
+        this.showToast(settings.sfx ? '音效已关闭' : '音效已开启');
+        return;
+      }
+      if (pointInRect(x, y, this.hapticsRect)) {
+        this.services.profile.updateSettings({ haptics: !settings.haptics });
+        this.services.haptics.setEnabled(!settings.haptics && !settings.reducedMotion);
+        this.services.feedback.tap();
+        this.showToast(settings.haptics ? '震动已关闭' : '震动已开启');
+        return;
+      }
+      if (pointInRect(x, y, this.motionRect)) {
+        this.services.feedback.tap();
+        this.services.profile.updateSettings({ reducedMotion: !settings.reducedMotion });
+        this.applyVisualSettings();
+        if (settings.reducedMotion) {
+          this.services.feedback.resetCombo();
+        } else {
+          this.services.particles.clear();
+        }
+        this.showToast(settings.reducedMotion ? '动效已恢复' : '已开启减少动效');
+        return;
+      }
       return;
     }
+
+    if (this.settingsTab === 'visual') {
+      if (pointInRect(x, y, this.performanceRect)) {
+        this.services.feedback.tap();
+        if (!settings.performanceMode) {
+          this.performanceSnapshot = {
+            quality: settings.quality,
+            ambientEffects: settings.ambientEffects,
+            sceneMotion: settings.sceneMotion,
+            textureDetail: settings.textureDetail,
+            screenShake: settings.screenShake,
+          };
+          this.services.profile.updateSettings({ performanceMode: true });
+          this.showToast('性能模式已开启');
+        } else {
+          const snap = this.performanceSnapshot;
+          this.services.profile.updateSettings({
+            performanceMode: false,
+            ...(snap ?? {}),
+          });
+          this.performanceSnapshot = null;
+          this.showToast('性能模式已关闭');
+        }
+        this.applyVisualSettings();
+        return;
+      }
+      const qualityHit = this.qualityRects.findIndex((rect) => pointInRect(x, y, rect));
+      if (qualityHit >= 0) {
+        this.services.feedback.tap();
+        const quality = (['auto', 'high', 'mid', 'low'] as const)[qualityHit];
+        this.services.profile.updateSettings({ quality, performanceMode: false });
+        this.performanceSnapshot = null;
+        this.applyVisualSettings();
+        this.showToast(`画面档位：${['自动', '高', '中', '低'][qualityHit]}`);
+        return;
+      }
+      const effectHit =
+        pointInRect(x, y, this.ambientRect) ||
+        pointInRect(x, y, this.sceneRect) ||
+        pointInRect(x, y, this.textureRect) ||
+        pointInRect(x, y, this.shakeRect);
+      if (effectHit && (settings.performanceMode || settings.reducedMotion)) {
+        this.services.feedback.invalid();
+        this.showToast('请先关闭性能模式或减少动效');
+        return;
+      }
+      if (pointInRect(x, y, this.ambientRect)) {
+        this.services.feedback.tap();
+        this.services.profile.updateSettings({ ambientEffects: !settings.ambientEffects });
+        this.applyVisualSettings();
+        this.showToast(settings.ambientEffects ? '环境粒子已关闭' : '环境粒子已开启');
+        return;
+      }
+      if (pointInRect(x, y, this.sceneRect)) {
+        this.services.feedback.tap();
+        this.services.profile.updateSettings({ sceneMotion: !settings.sceneMotion });
+        this.applyVisualSettings();
+        this.showToast(settings.sceneMotion ? '场景动画已关闭' : '场景动画已开启');
+        return;
+      }
+      if (pointInRect(x, y, this.textureRect)) {
+        this.services.feedback.tap();
+        this.services.profile.updateSettings({ textureDetail: !settings.textureDetail });
+        this.applyVisualSettings();
+        this.showToast(settings.textureDetail ? '纸纹已关闭' : '纸纹已开启');
+        return;
+      }
+      if (pointInRect(x, y, this.shakeRect)) {
+        this.services.feedback.tap();
+        this.services.profile.updateSettings({ screenShake: !settings.screenShake });
+        this.applyVisualSettings();
+        this.showToast(settings.screenShake ? '屏幕震动已关闭' : '屏幕震动已开启');
+        return;
+      }
+      return;
+    }
+
     if (pointInRect(x, y, this.privacyRect)) {
       this.services.feedback.tap();
       this.modal = 'privacy';
@@ -792,6 +1403,30 @@ export class LobbyScene implements Scene {
       this.services.feedback.tap();
       void this.confirmDelete();
     }
+  }
+
+  private applyVisualSettings(): void {
+    const settings = this.services.profile.get().settings;
+    const perf = settings.performanceMode;
+    const prevTier = this.services.quality.tier;
+    const prevTexture = this.services.quality.allowTextureDetail;
+    this.services.quality.setPreference(
+      settings.reducedMotion ? 'reduced' : perf ? 'low' : settings.quality,
+    );
+    this.services.quality.setEffects({
+      ambientEffects: settings.ambientEffects && !perf,
+      sceneMotion: settings.sceneMotion && !perf,
+      textureDetail: settings.textureDetail && !perf,
+      screenShake: settings.screenShake && !perf,
+    });
+    this.services.haptics.setEnabled(settings.haptics && !settings.reducedMotion);
+    if (
+      prevTier !== this.services.quality.tier ||
+      prevTexture !== this.services.quality.allowTextureDetail
+    ) {
+      this.art.invalidate();
+    }
+    this.ambient.clear();
   }
 
   private async confirmDelete(): Promise<void> {
@@ -806,12 +1441,12 @@ export class LobbyScene implements Scene {
     const settings = this.services.profile.get().settings;
     this.services.audio.setMusic(settings.music);
     this.services.audio.setSfx(settings.sfx);
-    this.services.haptics.setEnabled(settings.haptics);
-    this.services.quality.setPreference(settings.reducedMotion ? 'reduced' : 'auto');
+    this.services.haptics.setEnabled(settings.haptics && !settings.reducedMotion);
+    this.applyVisualSettings();
     this.showToast('本地数据已清除');
   }
 
   private showToast(text: string): void {
-    this.toast = { text, until: Date.now() + 1600 };
+    this.toast = { text, until: Date.now() + 1800 };
   }
 }

@@ -4,7 +4,7 @@ import { AudioService } from './audio/audio';
 import { CloudService } from './cloud/cloud';
 import { CloudSaveService } from './cloud/cloud-save';
 import { HapticsService } from './haptics/haptics';
-import { InputService } from './input/input';
+import { InputService, PointerPoint, SwipeEvent } from './input/input';
 import { ParticleSystem } from './particles/particles';
 import { ProfileService } from './profile';
 import { QualityService } from './quality/quality';
@@ -35,6 +35,10 @@ export interface GameInstance {
   update(dt: number): void;
   render(renderer: Renderer): void;
   onTap?(x: number, y: number): void;
+  onPress?(point: PointerPoint): void;
+  onDrag?(point: PointerPoint): void;
+  onRelease?(point: PointerPoint): void;
+  onSwipe?(event: SwipeEvent): void;
 }
 
 export interface GameContext {

@@ -1,3 +1,4 @@
+import { PinchEvent, PointerPoint, SwipeEvent } from '../input/input';
 import { Renderer } from '../render/renderer';
 
 export interface Scene {
@@ -7,6 +8,11 @@ export interface Scene {
   update(dt: number): void;
   render(renderer: Renderer): void;
   onTap?(x: number, y: number): void;
+  onPress?(point: PointerPoint): void;
+  onDrag?(point: PointerPoint): void;
+  onRelease?(point: PointerPoint): void;
+  onSwipe?(event: SwipeEvent): void;
+  onPinch?(event: PinchEvent): void;
 }
 
 export class SceneManager {
@@ -59,6 +65,26 @@ export class SceneManager {
 
   tap(x: number, y: number): void {
     this.current?.onTap?.(x, y);
+  }
+
+  press(point: PointerPoint): void {
+    this.current?.onPress?.(point);
+  }
+
+  drag(point: PointerPoint): void {
+    this.current?.onDrag?.(point);
+  }
+
+  release(point: PointerPoint): void {
+    this.current?.onRelease?.(point);
+  }
+
+  swipe(event: SwipeEvent): void {
+    this.current?.onSwipe?.(event);
+  }
+
+  pinch(event: PinchEvent): void {
+    this.current?.onPinch?.(event);
   }
 
   get activeKey(): string {
