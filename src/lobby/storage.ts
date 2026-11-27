@@ -16,6 +16,8 @@ export interface StorageState {
   pantry: Record<string, number>;
   selected: readonly string[];
   tab: GoodsKind;
+  /** 曾经获得过的食材；有值时给营业可用的原材料加标记。 */
+  ingredientUnlocks?: readonly string[];
 }
 
 export type StorageHit =
@@ -155,6 +157,21 @@ export function drawStoragePanel(
       size: 10,
       color: COLORS.inkSoft,
     });
+    const raw =
+      item.kind === 'crop' || item.kind === 'flower' || item.kind === 'ranch';
+    const restaurantReady =
+      raw &&
+      (state.ingredientUnlocks
+        ? state.ingredientUnlocks.includes(item.id)
+        : amount > 0);
+    if (restaurantReady) {
+      drawText(ctx, '营业', rect.x + rect.w - 8, rect.y + rect.h - 7, {
+        size: 9,
+        weight: '700',
+        color: COLORS.jade,
+        align: 'right',
+      });
+    }
     if (selected) {
       ctx.beginPath();
       ctx.arc(rect.x + rect.w - 14, rect.y + 14, 9, 0, Math.PI * 2);

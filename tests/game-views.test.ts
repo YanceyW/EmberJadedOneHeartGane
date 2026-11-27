@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest';
 import type { Renderer } from '../src/core/render/renderer';
 import { COMBO_RECIPES } from '../src/games/restaurant/data/combos';
 import { createRestaurantSave } from '../src/games/restaurant/systems/save';
-import { createShift } from '../src/games/restaurant/systems/shift';
+import { createShift, shiftSupplySlots } from '../src/games/restaurant/systems/shift';
 import { RestaurantView } from '../src/games/restaurant/view/restaurant-view';
 import { createRanchSave } from '../src/games/ranch/systems/ranch';
 import { RanchView } from '../src/games/ranch/view/ranch-view';
@@ -56,6 +56,9 @@ describe('game view render smoke', () => {
       selectedStove: null,
       exitPanel: false,
       exitPenalty: 0,
+      supplyRail: shiftSupplySlots(['wheat', 'egg']),
+      supplyScroll: 0,
+      supplyScrollMax: 0,
     };
     expect(() => {
       view.render(renderer, state, 'kitchen', 'farm', null, null, null);
@@ -77,10 +80,15 @@ describe('game view render smoke', () => {
       shift.stoves[0].ready = { output: 'tomato-egg', age: 0, inputCount: 2 };
       shift.prepared[0] = { id: 'spring-noodle', quality: 1 };
       view.render(renderer, state, 'shift', 'farm', shift, 0, null);
+      expect(view.hitTest(90, 1470)?.kind).toBe('palette');
+      expect(view.hitTest(646, 1430)).toEqual({ kind: 'supply-arrow', direction: -1 });
+      expect(view.hitTest(678, 1430)).toEqual({ kind: 'supply-arrow', direction: 1 });
       view.drawSettle(renderer.ctx, renderer.width, renderer.height, {
         revenue: 120,
         penalty: 0,
         netRevenue: 120,
+        walletLoss: 0,
+        perfect: true,
         delivered: 3,
         servedCustomers: 2,
         bestCombo: 2,

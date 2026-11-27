@@ -1,4 +1,9 @@
-﻿import { MENU, MenuItemDef, findMenuItem } from '../../../shared/content/menu';
+﻿import {
+  INGREDIENTS,
+  IngredientDef,
+  findIngredient,
+} from '../../../shared/content/ingredients';
+import { MENU, MenuItemDef, findMenuItem } from '../../../shared/content/menu';
 import { COMBO_RECIPES, recipeSteps } from '../data/combos';
 import { CounterCells, emptyCounter } from './counter';
 import {
@@ -11,7 +16,7 @@ import {
 } from './stove';
 
 /**
- * 营业：客人排成一排，吧台无限供应基础材料。
+ * 营业：客人排成一排，吧台无限供应清水与已解锁原材料。
  * 玩家在备料台/3×3 灶眼现做，成品先放配料区，或直接拖给客人。
  * 营业仍然不读写王都仓库，避免小游戏掏空玩家囤货。
  */
@@ -21,30 +26,53 @@ export const SHIFT_EAT_SECONDS = 2.5;
 export const SHIFT_LEAVE_PENALTY = 8;
 export const SHIFT_PREPARED_SLOTS = 6;
 
-/** 营业吧台永远无限供应的农作物与清水。 */
-export const SHIFT_BASE_SUPPLY: readonly string[] = [
-  'water',
-  'flour',
-  'rice',
-  'lettuce',
-  'tomato',
-  'potato',
-  'corn',
-  'mushroom',
-  'cabbage',
-  'carrot',
-  'onion',
-  'soybean',
-];
+/** 新号只有清水；其余原材料要靠农牧场首次收获解锁。 */
+export const SHIFT_BASE_SUPPLY: readonly string[] = ['water'];
 
-/** 牧场首次收获后解锁的鲜货；肉仍只走仓库/厨房深链。 */
+export type ShiftSupplySource = 'base' | 'farm' | 'garden' | 'ranch';
+
+export interface ShiftSupplySlot {
+  id: string;
+  unlocked: boolean;
+  source: ShiftSupplySource;
+}
+
+/** 营业可无限取用的原材料：作物、花卉、牧场产物；半成品/成菜必须现做。 */
+export const SHIFT_RAW_IDS: readonly string[] = INGREDIENTS
+  .filter((item) => item.kind === 'crop' || item.kind === 'flower' || item.kind === 'ranch')
+  .map((item) => item.id);
+
+/** 默认完整供应，仅为测试/旧调用保留；实际营业由 profile 解锁列表决定。 */
+export const SHIFT_SUPPLY: readonly string[] = ['water', ...SHIFT_RAW_IDS];
+
+/** 旧版牧场供应常量，保留给外部引用；新逻辑不再直接使用。 */
 export const SHIFT_RANCH_SUPPLY: readonly string[] = ['egg', 'milk'];
 
-/** 默认完整供应，测试和旧调用保持 14 种。 */
-export const SHIFT_SUPPLY: readonly string[] = [
-  ...SHIFT_BASE_SUPPLY,
-  ...SHIFT_RANCH_SUPPLY,
-];
+export function shiftSupplyFromUnlocks(unlocks: readonly string[]): string[] {
+  const owned = new Set(unlocks);
+  return ['water', ...SHIFT_RAW_IDS.filter((id) => owned.has(id))];
+}
+
+export function shiftSupplySlots(unlocks: readonly string[]): ShiftSupplySlot[] {
+  const unlocked = new Set(shiftSupplyFromUnlocks(unlocks));
+  const sourceOf = (item: IngredientDef): ShiftSupplySource => {
+    if (item.id === 'water') return 'base';
+    if (item.kind === 'flower') return 'garden';
+    if (item.kind === 'ranch') return 'ranch';
+    return 'farm';
+  };
+  const slot = (id: string): ShiftSupplySlot | null => {
+    const item = findIngredient(id);
+    return item ? { id, unlocked: unlocked.has(id), source: sourceOf(item) } : null;
+  };
+  const all = ['water', ...SHIFT_RAW_IDS]
+    .map(slot)
+    .filter((item): item is ShiftSupplySlot => Boolean(item));
+  return [
+    ...all.filter((item) => item.unlocked),
+    ...all.filter((item) => !item.unlocked),
+  ];
+}
 
 function canCraftFromSupply(
   id: string,
@@ -119,8 +147,12 @@ export interface ShiftState {
   combo: number;
   bestCombo: number;
   finished: boolean;
+  /** 打烊中：不再新增客人，服务完当前客人后结算。 */
+  closing: boolean;
+  /** 打烊期间客人流失累计的罚款，结算时一次性扣。 */
+  closingPenalty: number;
   tier: number;
-  /** 本局可无限取用的材料；牧场解锁后追加蛋/奶。 */
+  /** 本局可无限取用的原材料：清水 + 已解锁 crop/flower/ranch。 */
   supply: readonly string[];
   orderPool: ShiftOrderDef[];
   counter: CounterCells;
@@ -168,6 +200,8 @@ export function createShift(
     combo: 0,
     bestCombo: 0,
     finished: false,
+    closing: false,
+    closingPenalty: 0,
     tier: 0,
     supply: safeSupply,
     orderPool: buildShiftOrderPool(safeSupply),
@@ -200,7 +234,7 @@ function pickItemCount(state: ShiftState, tier: number): number {
   return values[Math.min(values.length - 1, Math.floor(nextRandom(state) * values.length))];
 }
 
-function pickOrderId(state: ShiftState): string {
+function pickOrderId(state: ShiftState): string | null {
   const easy = state.servedCustomers < 3;
   const buckets: Array<{ min: number; max: number; weight: number }> = easy
     ? [{ min: 1, max: 2, weight: 1 }]
@@ -220,16 +254,18 @@ function pickOrderId(state: ShiftState): string {
       break;
     }
   }
-  const all = state.orderPool.length > 0 ? state.orderPool : SHIFT_ORDER_POOL;
+  const all = state.orderPool;
   const candidates = all.filter(
     (entry) => entry.steps >= chosen.min && entry.steps <= chosen.max,
   );
   const pool = candidates.length > 0 ? candidates : all;
+  if (pool.length === 0) return null;
   const index = Math.min(pool.length - 1, Math.floor(nextRandom(state) * pool.length));
-  return pool[index]?.item.id ?? 'ricemilk';
+  return pool[index]?.item.id ?? null;
 }
 
 function spawnCustomer(state: ShiftState): ShiftCustomer | null {
+  if (state.orderPool.length === 0) return null;
   const taken = new Set(state.customers.map((customer) => customer.seat));
   let seat = -1;
   for (let i = 0; i < SHIFT_SEATS; i += 1) {
@@ -244,14 +280,16 @@ function spawnCustomer(state: ShiftState): ShiftCustomer | null {
   const itemCount = pickItemCount(state, state.tier);
   const orders: string[] = [];
   for (let i = 0; i < itemCount; i += 1) {
-    orders.push(pickOrderId(state));
+    const id = pickOrderId(state);
+    if (id) orders.push(id);
   }
+  if (orders.length === 0) return null;
   const totalSteps = orders.reduce((sum, id) => sum + recipeSteps(id), 0);
   const patienceMax = Math.max(
     38,
     35 + totalSteps * 5 + itemCount * 5 - state.tier * 2,
   );
-  return {
+  const customer: ShiftCustomer = {
     id: state.nextId,
     seat,
     orders,
@@ -260,6 +298,8 @@ function spawnCustomer(state: ShiftState): ShiftCustomer | null {
     patienceMax,
     eating: 0,
   };
+  state.nextId += 1;
+  return customer;
 }
 
 export type ServeShiftResult =
@@ -384,7 +424,11 @@ export function discardPrepared(state: ShiftState, slot: number): PreparedDish |
 export interface ShiftSummary {
   revenue: number;
   penalty: number;
+  /** 营业额 - 罚款；允许为负。 */
   netRevenue: number;
+  /** 实际从王都币扣掉的金额，由控制器结算时填写。 */
+  walletLoss: number;
+  perfect: boolean;
   delivered: number;
   servedCustomers: number;
   bestCombo: number;
@@ -414,7 +458,14 @@ export function unservedValue(state: ShiftState): number {
 }
 
 export function exitPenalty(state: ShiftState): number {
-  return 5 * unservedCustomers(state) + Math.round(unservedValue(state) * 0.2);
+  return 5 * unservedCustomers(state) + Math.round(unservedValue(state) * 0.3);
+}
+
+/** 进入打烊中：停止新增客人，但保留现有客人。 */
+export function startClosing(state: ShiftState): boolean {
+  if (state.finished || state.closing) return false;
+  state.closing = true;
+  return true;
 }
 
 export function settleShift(state: ShiftState, penalized = false): ShiftSummary {
@@ -428,8 +479,10 @@ export function settleShift(state: ShiftState, penalized = false): ShiftSummary 
     }
   }
   const revenue = Math.max(0, Math.floor(state.revenue));
-  const penalty = penalized ? exitPenalty(state) : 0;
-  const netRevenue = Math.max(0, revenue - penalty);
+  const penalty = state.closingPenalty + (penalized ? exitPenalty(state) : 0);
+  const netRevenue = revenue - penalty;
+  const perfect =
+    state.closing && !penalized && state.lost === 0 && state.customers.length === 0;
   const minutes = Math.max(1 / 60, state.elapsed / 60);
   const revenuePerMinute = revenue / minutes;
   const serviceRate =
@@ -448,6 +501,8 @@ export function settleShift(state: ShiftState, penalized = false): ShiftSummary 
     revenue,
     penalty,
     netRevenue,
+    walletLoss: 0,
+    perfect,
     delivered: state.delivered,
     servedCustomers: state.servedCustomers,
     bestCombo: state.bestCombo,
@@ -512,35 +567,45 @@ export function advanceShift(state: ShiftState, dt: number): ShiftEvent[] {
     customer.patience -= step;
     if (customer.patience <= 0) {
       let paid = 0;
+      let unserved = 0;
       customer.orders.forEach((id, index) => {
         const quality = customer.servedQuality[index];
-        if (quality === null) return;
+        if (quality === null) {
+          unserved += findMenuItem(id)?.coins ?? 0;
+          return;
+        }
         paid += Math.round((findMenuItem(id)?.coins ?? 0) * quality * 0.5);
       });
       state.revenue += paid;
       state.lost += 1;
       state.combo = 0;
-      state.revenue = Math.max(0, state.revenue - SHIFT_LEAVE_PENALTY);
+      const leavePenalty = state.closing
+        ? Math.round(unserved * 0.3)
+        : SHIFT_LEAVE_PENALTY;
+      if (state.closing) state.closingPenalty += leavePenalty;
+      else state.revenue = Math.max(0, state.revenue - leavePenalty);
       state.customers = state.customers.filter((item) => item.id !== customer.id);
       events.push({
         kind: 'left',
         customer,
-        penalty: SHIFT_LEAVE_PENALTY,
+        penalty: leavePenalty,
         paid,
       });
     }
   }
 
   state.tier = shiftTier(state);
-  state.spawnTimer -= step;
-  if (state.spawnTimer <= 0) {
-    const customer = spawnCustomer(state);
-    if (customer) {
-      state.customers.push(customer);
-      events.push({ kind: 'spawn', customer });
-      state.spawnTimer = Math.max(5, 8 - state.tier * 0.6);
-    } else {
-      state.spawnTimer = 1;
+  if (!state.closing) {
+    state.spawnTimer -= step;
+    if (state.spawnTimer <= 0) {
+      const customer = spawnCustomer(state);
+      if (customer) {
+        state.customers.push(customer);
+        events.push({ kind: 'spawn', customer });
+        state.spawnTimer = Math.max(5, 8 - state.tier * 0.6);
+      } else {
+        state.spawnTimer = 1;
+      }
     }
   }
 

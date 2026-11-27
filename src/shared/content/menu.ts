@@ -256,6 +256,30 @@ const SEEDS: readonly MenuSeed[] = [
     coins: 208,
     prosperity: 5,
   },
+  {
+    id: 'radish-cake',
+    kind: 'dish',
+    art: 'pancake',
+    tint: COLORS.paper,
+    needs: [
+      { id: 'radish', amount: 1 },
+      { id: 'flour', amount: 1 },
+    ],
+    coins: 110,
+    prosperity: 3,
+  },
+  {
+    id: 'cucumber-salad',
+    kind: 'dish',
+    art: 'plate',
+    tint: COLORS.mint,
+    needs: [
+      { id: 'cucumber', amount: 1 },
+      { id: 'garlicpaste', amount: 1 },
+    ],
+    coins: 160,
+    prosperity: 4,
+  },
   // 牧产菜：鸡蛋、牛奶、猪肉、羊肉都从牧场来
   {
     id: 'tomato-egg',
@@ -480,6 +504,66 @@ const SEEDS: readonly MenuSeed[] = [
       { id: 'water', amount: 1 },
     ],
     coins: 96,
+    prosperity: 2,
+  },
+  {
+    id: 'daisy-tea',
+    kind: 'drink',
+    art: 'tea',
+    tint: COLORS.cream,
+    needs: [
+      { id: 'daisy', amount: 1 },
+      { id: 'water', amount: 1 },
+    ],
+    coins: 45,
+    prosperity: 2,
+  },
+  {
+    id: 'tulip-tea',
+    kind: 'drink',
+    art: 'tea',
+    tint: COLORS.petal,
+    needs: [
+      { id: 'tulip', amount: 1 },
+      { id: 'water', amount: 1 },
+    ],
+    coins: 80,
+    prosperity: 2,
+  },
+  {
+    id: 'sunflower-tea',
+    kind: 'drink',
+    art: 'tea',
+    tint: COLORS.honey,
+    needs: [
+      { id: 'sunflower', amount: 1 },
+      { id: 'water', amount: 1 },
+    ],
+    coins: 105,
+    prosperity: 2,
+  },
+  {
+    id: 'lilac-tea',
+    kind: 'drink',
+    art: 'tea',
+    tint: COLORS.lilac,
+    needs: [
+      { id: 'lilac', amount: 1 },
+      { id: 'water', amount: 1 },
+    ],
+    coins: 195,
+    prosperity: 2,
+  },
+  {
+    id: 'lotus-tea',
+    kind: 'drink',
+    art: 'tea',
+    tint: COLORS.petalDeep,
+    needs: [
+      { id: 'lotus', amount: 1 },
+      { id: 'water', amount: 1 },
+    ],
+    coins: 245,
     prosperity: 2,
   },
 ] as const;

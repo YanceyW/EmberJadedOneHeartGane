@@ -3,7 +3,7 @@ import { GameRegistry } from '../../core/game-registry';
 import { Renderer } from '../../core/render/renderer';
 import { PointerPoint } from '../../core/input/input';
 import { dayKey } from '../../shared/content/daily-orders';
-import { ingredientName } from '../../shared/content/ingredients';
+import { findIngredient, ingredientName } from '../../shared/content/ingredients';
 import { canServeTable, serveTable } from './systems/orders';
 import {
   RestaurantSave,
@@ -40,22 +40,25 @@ import { ComboRecipe, findRecipeById, recipeHintText } from './data/combos';
 import { DropSource, dropOnRestaurant } from './game-drop';
 import { serveCustomerOnShift } from './game-serve';
 import {
-  SHIFT_BASE_SUPPLY,
-  SHIFT_SUPPLY,
   ShiftState,
   ShiftSummary,
   advanceShift,
+  buildShiftOrderPool,
   createShift,
   exitPenalty,
   settleShift,
   shiftSeed,
+  shiftSupplyFromUnlocks,
+  shiftSupplySlots,
+  startClosing,
   storePrepared,
-  unservedCustomers,
 } from './systems/shift';
 import {
   CraftTab,
   RestaurantPage,
   RestaurantViewState,
+  snapSupplyScroll,
+  supplyRailMetrics,
 } from './view/restaurant-view-data';
 import { RestaurantView } from './view/restaurant-view';
 import { RestaurantHit } from './view/restaurant-types';
@@ -81,6 +84,10 @@ class RestaurantGame implements GameInstance {
   private dragStart: { x: number; y: number } | null = null;
   private dragPoint: { x: number; y: number } | null = null;
   private dragMoved = false;
+  private supplyScroll = 0;
+  private supplyScrollMax = 0;
+  private supplyScrollStart: { x: number; y: number; scroll: number } | null = null;
+  private supplyScrolling = false;
 
   constructor(private readonly ctx: GameContext) {
     this.save = migrateRestaurantSave(this.ctx.storage.get<unknown>(SAVE_KEY, null));
@@ -91,6 +98,23 @@ class RestaurantGame implements GameInstance {
     if (ensureRestaurantDaily(this.save, dayKey(Date.now()))) {
       this.ctx.storage.set(SAVE_KEY, this.save);
     }
+  }
+
+  private ingredientUnlocks(): string[] {
+    const profile = this.ctx.profile.get() as {
+      ingredientUnlocks?: readonly string[];
+    };
+    return profile.ingredientUnlocks
+      ? [...profile.ingredientUnlocks]
+      : Object.keys(this.ctx.profile.pantry());
+  }
+
+  private currentSupply(): string[] {
+    return shiftSupplyFromUnlocks(this.ingredientUnlocks());
+  }
+
+  private currentExitPenalty(): number {
+    return this.shift ? this.shift.closingPenalty + exitPenalty(this.shift) : 0;
   }
 
   update(dt: number): void {
@@ -124,6 +148,9 @@ class RestaurantGame implements GameInstance {
           }
         }
       }
+      if (this.shift?.closing && this.shift.customers.length === 0) {
+        this.closeShift(false);
+      }
       return;
     }
     if (this.summary || this.shift) return;
@@ -140,6 +167,12 @@ class RestaurantGame implements GameInstance {
     this.ensureDaily();
     const store = this.ctx.profile.pantry();
     const suggestions = this.currentAdvice();
+    const supplyRail = shiftSupplySlots(this.ingredientUnlocks());
+    this.supplyScrollMax = supplyRailMetrics(
+      supplyRail.length,
+      this.ctx.renderer.width - 96,
+    ).maxScroll;
+    this.supplyScroll = Math.max(0, Math.min(this.supplyScrollMax, this.supplyScroll));
     const state: RestaurantViewState = {
       save: this.save,
       store,
@@ -152,7 +185,10 @@ class RestaurantGame implements GameInstance {
       selectedCounter: this.selectedCounter,
       selectedStove: this.selectedStove,
       exitPanel: this.exitPanel,
-      exitPenalty: this.shift && !this.summary ? exitPenalty(this.shift) : 0,
+      exitPenalty: this.shift && !this.summary ? this.currentExitPenalty() : 0,
+      supplyRail,
+      supplyScroll: this.supplyScroll,
+      supplyScrollMax: this.supplyScrollMax,
     };
     const dragId = this.dragId();
     const drag =
@@ -168,7 +204,13 @@ class RestaurantGame implements GameInstance {
       this.selectedPrepared,
       drag,
     );
-    this.view.drawSettle(renderer.ctx, renderer.width, renderer.height, this.summary);
+    this.view.drawSettle(
+      renderer.ctx,
+      renderer.width,
+      renderer.height,
+      this.summary,
+      this.save.perfectCloses,
+    );
   }
 
   enter(): void {
@@ -214,7 +256,7 @@ class RestaurantGame implements GameInstance {
     }
     if (hit.kind === 'exit-close') {
       this.exitPanel = false;
-      this.closeShift(false);
+      this.requestCloseShift();
       return;
     }
     if (hit.kind === 'exit-leave') {
@@ -253,7 +295,22 @@ class RestaurantGame implements GameInstance {
       this.ctx.feedback.tap();
       return;
     }
+    if (hit.kind === 'supply-arrow') {
+      const count = shiftSupplySlots(this.ingredientUnlocks()).length;
+      const step = supplyRailMetrics(count, this.ctx.renderer.width - 96).chipW;
+      this.supplyScroll = snapSupplyScroll(
+        this.supplyScroll + hit.direction * step * 3,
+        count,
+        this.ctx.renderer.width - 96,
+      );
+      this.ctx.feedback.tap();
+      return;
+    }
     if (hit.kind === 'palette') {
+      if (hit.locked) {
+        this.toastLockedSupply(hit.id);
+        return;
+      }
       this.addFromPalette(hit.id);
       return;
     }
@@ -262,17 +319,7 @@ class RestaurantGame implements GameInstance {
       return;
     }
     if (hit.kind === 'close-shift') {
-      if (!this.shift) {
-        this.startShift();
-      } else if (!this.summary) {
-        if (unservedCustomers(this.shift) > 0) {
-          this.exitPanel = true;
-          this.toast('还有客人没上菜，确认打烊或继续营业');
-          this.ctx.feedback.select();
-        } else {
-          this.closeShift(false);
-        }
-      }
+      this.requestCloseShift();
       return;
     }
     if (hit.kind === 'counter') {
@@ -346,8 +393,17 @@ class RestaurantGame implements GameInstance {
     this.dragMoved = false;
     this.dragPoint = { x: point.x, y: point.y };
     this.dragStart = { x: point.x, y: point.y };
+    this.supplyScrollStart = null;
+    this.supplyScrolling = false;
     if (!hit) return;
-    if (hit.kind === 'palette') {
+    if ((hit.kind === 'palette' || hit.kind === 'palette-bin') && this.page === 'shift') {
+      this.supplyScrollStart = {
+        x: point.x,
+        y: point.y,
+        scroll: this.supplyScroll,
+      };
+    }
+    if (hit.kind === 'palette' && !hit.locked) {
       this.drag = { kind: 'palette', id: hit.id };
     } else if (hit.kind === 'counter') {
       if (this.activeCounter()[hit.index]) this.drag = { kind: 'counter', index: hit.index };
@@ -364,6 +420,30 @@ class RestaurantGame implements GameInstance {
   }
 
   onDrag(point: PointerPoint): void {
+    if (this.supplyScrollStart) {
+      const dx = point.x - this.supplyScrollStart.x;
+      const dy = point.y - this.supplyScrollStart.y;
+      const rail = this.view.supplyBinRect();
+      const nearRail =
+        point.y >= rail.y - 18 && point.y <= rail.y + rail.h + 18;
+      if (
+        !this.supplyScrolling &&
+        Math.abs(dx) > 24 &&
+        Math.abs(dx) > Math.abs(dy) * 1.3 &&
+        nearRail
+      ) {
+        this.supplyScrolling = true;
+        this.drag = null;
+        this.dragPoint = null;
+      }
+      if (this.supplyScrolling) {
+        this.supplyScroll = Math.max(
+          0,
+          Math.min(this.supplyScrollMax, this.supplyScrollStart.scroll - dx),
+        );
+        return;
+      }
+    }
     if (!this.drag) return;
     this.dragPoint = { x: point.x, y: point.y };
     if (!this.dragStart) return;
@@ -376,10 +456,21 @@ class RestaurantGame implements GameInstance {
   onRelease(point: PointerPoint): void {
     const source = this.drag;
     const moved = this.dragMoved;
+    const wasScrolling = this.supplyScrolling;
     this.drag = null;
     this.dragStart = null;
     this.dragPoint = null;
     this.dragMoved = false;
+    this.supplyScrollStart = null;
+    this.supplyScrolling = false;
+    if (wasScrolling) {
+      this.supplyScroll = snapSupplyScroll(
+        this.supplyScroll,
+        shiftSupplySlots(this.ingredientUnlocks()).length,
+        this.ctx.renderer.width - 96,
+      );
+      return;
+    }
     if (!source || !moved) return;
     const hit = this.view.hitTest(point.x, point.y);
     this.drop(source, hit, point.x, point.y);
@@ -493,6 +584,10 @@ class RestaurantGame implements GameInstance {
   private addFromPaletteAt(id: string, index: number): void {
     const kitchen = !this.shift;
     const store = this.ctx.profile.pantry();
+    if (this.shift && !this.shift.supply.includes(id)) {
+      this.toastLockedSupply(id);
+      return;
+    }
     if (kitchen && id !== 'water' && (store[id] ?? 0) < 1) {
       this.ctx.feedback.invalid();
       this.toast(`仓库里没有${ingredientName(id)}，去农场或牧场看看`);
@@ -812,16 +907,14 @@ class RestaurantGame implements GameInstance {
     );
   }
 
-  private ranchSupplyUnlocked(): boolean {
-    const profile = this.ctx.profile.get() as {
-      cosmetics?: { ownedTiles?: readonly string[] };
-    };
-    const tiles = profile.cosmetics?.ownedTiles;
-    return Array.isArray(tiles) && tiles.includes('ranch');
-  }
-
   private startShift(): void {
-    const supply = this.ranchSupplyUnlocked() ? SHIFT_SUPPLY : SHIFT_BASE_SUPPLY;
+    const supply = this.currentSupply();
+    this.page = 'shift';
+    if (buildShiftOrderPool(supply).length === 0) {
+      this.ctx.feedback.invalid();
+      this.toast('还没有能做菜的食材，先去农场/花园/牧场收获一次再来开张');
+      return;
+    }
     this.shift = createShift(shiftSeed(dayKey(Date.now()), this.save.shifts), supply);
     this.summary = null;
     this.exitPanel = false;
@@ -829,13 +922,31 @@ class RestaurantGame implements GameInstance {
     this.selectedPrepared = null;
     this.selectedCounter = null;
     this.selectedStove = null;
-    this.page = 'shift';
+    this.supplyScroll = 0;
     this.ctx.feedback.tap();
     this.toast(
-      supply === SHIFT_SUPPLY
-        ? '开张啦：牧场蛋奶已解锁；先补备料台，再摆 3×3 灶眼'
-        : '开张啦：牧场首次收获后解锁蛋奶；先补备料台，再摆 3×3 灶眼',
+      `开张啦：本局可用 ${Math.max(0, supply.length - 1)} 种已解锁原材料；先补备料台，再摆 3×3 灶眼`,
     );
+  }
+
+  private requestCloseShift(): void {
+    if (!this.shift) {
+      this.startShift();
+      return;
+    }
+    if (this.summary) return;
+    if (this.shift.closing) {
+      this.toast('打烊中：不再来新客人，服务完当前客人就结算');
+      this.ctx.feedback.select();
+      return;
+    }
+    if (!startClosing(this.shift)) return;
+    if (this.shift.customers.length === 0) {
+      this.closeShift(false);
+      return;
+    }
+    this.ctx.feedback.select();
+    this.toast('打烊中：不再来新客人，服务完当前客人就结算');
   }
 
   private closeShift(penalized: boolean): void {
@@ -843,11 +954,14 @@ class RestaurantGame implements GameInstance {
     const summary = settleShift(this.shift, penalized);
     this.summary = summary;
     this.save.shifts += 1;
+    if (summary.perfect) this.save.perfectCloses += 1;
     this.save.bestRevenue = Math.max(this.save.bestRevenue, summary.revenue);
     this.save.bestCombo = Math.max(this.save.bestCombo, summary.bestCombo);
-    this.ctx.profile.addCoins(summary.netRevenue);
-    const walletLoss = Math.min(50, Math.max(0, summary.penalty - summary.revenue));
-    if (walletLoss > 0) this.ctx.profile.loseCoins(walletLoss);
+    if (summary.netRevenue > 0) {
+      this.ctx.profile.addCoins(summary.netRevenue);
+    } else if (summary.netRevenue < 0) {
+      summary.walletLoss = this.ctx.profile.loseCoins(-summary.netRevenue);
+    }
     this.ctx.profile.addProsperity(summary.prosperity);
     if (summary.recycledFeed > 0) {
       this.ctx.profile.addPantry('feed', summary.recycledFeed);
@@ -858,7 +972,9 @@ class RestaurantGame implements GameInstance {
     this.selectedStove = null;
     this.ctx.feedback.reward();
     if (summary.penalty > 0) {
-      this.toast(`打烊结算：净收入 ${summary.netRevenue}，赔偿 ${summary.penalty}`);
+      this.toast(
+        `打烊结算：净收入 ${summary.netRevenue}，赔偿 ${summary.penalty}，钱包 -${summary.walletLoss}`,
+      );
     } else {
       this.toast(`打烊结算：净收入 ${summary.netRevenue}`);
     }
@@ -875,6 +991,14 @@ class RestaurantGame implements GameInstance {
 
   private persist(): void {
     this.ctx.storage.set(SAVE_KEY, this.save);
+  }
+
+  private toastLockedSupply(id: string): void {
+    const item = findIngredient(id);
+    const source =
+      item?.kind === 'flower' ? '花园' : item?.kind === 'ranch' ? '牧场' : '农场';
+    this.ctx.feedback.invalid();
+    this.toast(`未解锁：${item?.name ?? id} · 去${source}收获一次即可用于营业`);
   }
 
   private toast(text: string): void {

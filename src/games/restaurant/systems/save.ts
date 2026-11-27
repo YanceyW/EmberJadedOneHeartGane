@@ -6,10 +6,10 @@ import { StoveState, createStoves, migrateStoves } from './stove';
 /** 点菜页的三张桌子，存的是菜单 id；换菜谱也不会读错。 */
 export const RESTAURANT_TABLES = 3;
 export const RESTAURANT_DAILY_GOAL = 8;
-export const RESTAURANT_DAILY_REWARD = { coins: 60, prosperity: 2 } as const;
+export const RESTAURANT_DAILY_REWARD = { coins: 150, prosperity: 3 } as const;
 
 export interface RestaurantSave {
-  schemaVersion: 5;
+  schemaVersion: 6;
   /** 每张桌子当前点的菜（menu id）。 */
   tables: string[];
   /** 下一位客人的菜，保证一轮里不重复太多。 */
@@ -24,6 +24,8 @@ export interface RestaurantSave {
   bestRevenue: number;
   bestCombo: number;
   shifts: number;
+  /** 完美打烊次数；不发额外货币，只做长期记录。 */
+  perfectCloses: number;
   /** 厨房备料台：15 格，每格一件。 */
   counter: CounterCells;
   /** 厨房灶台：离开游戏也会保留正在烹饪/出锅的食物。 */
@@ -38,7 +40,7 @@ export interface RestaurantSave {
 
 export function createRestaurantSave(): RestaurantSave {
   return {
-    schemaVersion: 5,
+    schemaVersion: 6,
     tables: MENU.slice(0, RESTAURANT_TABLES).map((item) => item.id),
     nextItem: RESTAURANT_TABLES,
     cooked: 0,
@@ -47,6 +49,7 @@ export function createRestaurantSave(): RestaurantSave {
     bestRevenue: 0,
     bestCombo: 0,
     shifts: 0,
+    perfectCloses: 0,
     counter: emptyCounter(),
     stoves: createStoves(),
     discovered: [],
@@ -81,7 +84,7 @@ export function migrateRestaurantSave(input: unknown): RestaurantSave {
   }
 
   return {
-    schemaVersion: 5,
+    schemaVersion: 6,
     tables,
     nextItem: finite(raw.nextItem, defaults.nextItem),
     cooked: finite(raw.cooked, 0),
@@ -90,6 +93,7 @@ export function migrateRestaurantSave(input: unknown): RestaurantSave {
     bestRevenue: finite(raw.bestRevenue, 0),
     bestCombo: finite(raw.bestCombo, 0),
     shifts: finite(raw.shifts, 0),
+    perfectCloses: finite(raw.perfectCloses, 0),
     counter: migrateCounter(raw.counter ?? raw.craft),
     stoves: migrateStoves(raw.stoves),
     discovered,

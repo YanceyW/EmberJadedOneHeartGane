@@ -90,6 +90,11 @@ const DRINKS: readonly IngredientDef[] = [
   { id: 'jasmine-tea', name: '茉莉花茶', kind: 'drink', sellPrice: 35 },
   { id: 'chrys-tea', name: '菊花茶', kind: 'drink', sellPrice: 37 },
   { id: 'osmanthus-tea', name: '桂花茶', kind: 'drink', sellPrice: 38 },
+  { id: 'daisy-tea', name: '雏菊茶', kind: 'drink', sellPrice: 18 },
+  { id: 'tulip-tea', name: '郁金香茶', kind: 'drink', sellPrice: 32 },
+  { id: 'sunflower-tea', name: '向日葵茶', kind: 'drink', sellPrice: 42 },
+  { id: 'lilac-tea', name: '风信子茶', kind: 'drink', sellPrice: 78 },
+  { id: 'lotus-tea', name: '荷花茶', kind: 'drink', sellPrice: 98 },
 ] as const;
 
 const DISHES: readonly IngredientDef[] = [
@@ -109,6 +114,8 @@ const DISHES: readonly IngredientDef[] = [
   { id: 'beans-bun', name: '豆沙包', kind: 'dish', sellPrice: 65 },
   { id: 'berry-cake', name: '草莓豆沙糕', kind: 'dish', sellPrice: 66 },
   { id: 'rose-cake', name: '玫瑰鲜花饼', kind: 'dish', sellPrice: 79 },
+  { id: 'radish-cake', name: '萝卜糕', kind: 'dish', sellPrice: 44 },
+  { id: 'cucumber-salad', name: '拍黄瓜', kind: 'dish', sellPrice: 64 },
   { id: 'garlic-eggplant', name: '蒜蓉茄子', kind: 'dish', sellPrice: 71 },
   { id: 'osmanthus-cake', name: '桂花米糕', kind: 'dish', sellPrice: 83 },
   { id: 'tomato-egg', name: '番茄炒蛋', kind: 'dish', sellPrice: 56 },

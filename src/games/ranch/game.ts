@@ -140,6 +140,8 @@ class RanchGame implements GameInstance {
         now,
       );
       if (!result) return;
+      const newlyUnlocked = !this.ctx.profile.ingredientUnlocked(result.product);
+      this.ctx.profile.markIngredient(result.product);
       this.ctx.profile.addProsperity(1);
       if (wasFirst) {
         this.ctx.profile.unlockTile('ranch');
@@ -147,10 +149,11 @@ class RanchGame implements GameInstance {
       this.persist();
       this.ctx.feedback.reward(x, y);
       this.ctx.feedback.burst('coin', x, y, 0.9);
+      const unlockedText = newlyUnlocked ? ' · 营业已解锁' : '';
       this.toast(
         wasFirst
-          ? `收获 ${productName(result.product)}×${result.amount}，三消牧场方块已解锁`
-          : `收获 ${productName(result.product)}×${result.amount}`,
+          ? `收获 ${productName(result.product)}×${result.amount}，三消牧场方块已解锁${unlockedText}`
+          : `收获 ${productName(result.product)}×${result.amount}${unlockedText}`,
       );
       return;
     }

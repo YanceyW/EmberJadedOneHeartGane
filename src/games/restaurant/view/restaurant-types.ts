@@ -5,8 +5,9 @@ export type RestaurantHit =
   | { kind: 'back' }
   | { kind: 'page'; page: RestaurantPage }
   | { kind: 'craft-tab'; tab: CraftTab }
-  | { kind: 'palette'; id: string }
+  | { kind: 'palette'; id: string; locked?: boolean }
   | { kind: 'palette-bin' }
+  | { kind: 'supply-arrow'; direction: -1 | 1 }
   | { kind: 'counter'; index: number }
   | { kind: 'stove'; index: number; cell?: number }
   | { kind: 'stove-fire'; index: number }
@@ -49,6 +50,8 @@ export interface ShiftPageLayout {
   stoves: StoveLayout[];
   suggestions: Rect[];
   counter: Rect[];
-  palette: Array<{ id: string; rect: Rect }>;
+  palette: Array<{ id: string; rect: Rect; locked?: boolean }>;
   paletteBin: Rect;
+  palettePrev: Rect;
+  paletteNext: Rect;
 }

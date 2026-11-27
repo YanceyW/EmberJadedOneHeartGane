@@ -134,11 +134,17 @@ class GardenGame implements GameInstance {
     const harvested = harvestFlower(this.save, index, now, this.ctx.profile.pantry());
     if (harvested) {
       const flower = findFlower(harvested.flowerId);
+      const newlyUnlocked = !this.ctx.profile.ingredientUnlocked(harvested.flowerId);
+      this.ctx.profile.markIngredient(harvested.flowerId);
       this.ctx.profile.addProsperity(1);
       this.persist();
       this.ctx.feedback.reward(x, y);
       this.ctx.feedback.burst('petal', x, y, 0.8);
-      this.toast(`收获 ${flower?.name ?? '花'} ×${harvested.amount}`);
+      this.toast(
+        `收获 ${flower?.name ?? '花'} ×${harvested.amount}${
+          newlyUnlocked ? ' · 营业已解锁' : ''
+        }`,
+      );
       return;
     }
     this.toast(`还要 ${remainingSeconds(this.save, index, now)} 秒`);
@@ -152,10 +158,17 @@ class GardenGame implements GameInstance {
       this.ctx.feedback.invalid(x, y);
       return;
     }
+    const newlyUnlocked: string[] = [];
+    for (const id of Object.keys(result.flowers)) {
+      if (!this.ctx.profile.ingredientUnlocked(id)) newlyUnlocked.push(id);
+      this.ctx.profile.markIngredient(id);
+    }
     this.ctx.profile.addProsperity(result.total);
     this.persist();
     this.ctx.feedback.reward(x, y);
-    this.toast(`收获 ${result.total} 朵花`);
+    this.toast(
+      `收获 ${result.total} 朵花${newlyUnlocked.length > 0 ? ' · 营业已解锁' : ''}`,
+    );
   }
 
   private waterAll(x: number, y: number): void {

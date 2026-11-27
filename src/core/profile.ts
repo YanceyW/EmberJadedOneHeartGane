@@ -61,7 +61,7 @@ export interface ProfileDaily {
 }
 
 export interface Profile {
-  schemaVersion: 7;
+  schemaVersion: 8;
   playerId: string;
   displayName: string;
   /** 是否已经在云端领取过唯一名字；离线兜底名为 false。 */
@@ -72,6 +72,8 @@ export interface Profile {
   coins: number;
   /** 王都仓库：作物/花卉/半成品/茶饮/成菜共用的唯一库存。 */
   pantry: Record<string, number>;
+  /** 曾经获得过的食材 id；用于营业无限供应解锁。 */
+  ingredientUnlocks: string[];
   daily: ProfileDaily;
   unlockedGames: string[];
   cosmetics: ProfileCosmetics;
@@ -126,6 +128,24 @@ function validPantry(value: unknown): Record<string, number> {
   return pantry;
 }
 
+function validIngredientUnlocks(
+  value: unknown,
+  pantry: Record<string, number>,
+  ownedTiles: readonly string[],
+): string[] {
+  const unlocks = uniqueStrings(value, []).filter((id) => INGREDIENT_IDS.includes(id));
+  for (const id of Object.keys(pantry)) {
+    if (INGREDIENT_IDS.includes(id) && !unlocks.includes(id)) unlocks.push(id);
+  }
+  // 旧存档只记录了牧场方块，不记录具体产物；补鸡蛋/牛奶避免已有进度回退。
+  if (ownedTiles.includes('ranch')) {
+    for (const id of ['egg', 'milk']) {
+      if (!unlocks.includes(id)) unlocks.push(id);
+    }
+  }
+  return unlocks;
+}
+
 function validDaily(value: unknown): ProfileDaily {
   const raw = value && typeof value === 'object' ? (value as Record<string, unknown>) : {};
   return {
@@ -155,7 +175,7 @@ function validResidents(value: unknown): Resident[] {
 
 export function createDefaultProfile(now = Date.now(), playerId = makePlayerId(now)): Profile {
   return {
-    schemaVersion: 7,
+    schemaVersion: 8,
     playerId,
     displayName: generateLocalName(playerId),
     nameClaimed: false,
@@ -164,6 +184,7 @@ export function createDefaultProfile(now = Date.now(), playerId = makePlayerId(n
     prosperity: 0,
     coins: 0,
     pantry: {},
+    ingredientUnlocks: [],
     daily: { date: dayKey(now), claimed: [], streak: 0, lastClear: '' },
     unlockedGames: ['match3'],
     cosmetics: {
@@ -248,8 +269,15 @@ export function migrateProfile(input: unknown, now = Date.now()): Profile {
   buildMax.lights = Math.max(buildMax.lights, build.lights);
   buildMax.garden = Math.max(buildMax.garden, build.garden);
 
+  const pantry = validPantry(raw.pantry);
+  const ingredientUnlocks = validIngredientUnlocks(
+    raw.ingredientUnlocks,
+    pantry,
+    ownedTiles,
+  );
+
   return {
-    schemaVersion: 7,
+    schemaVersion: 8,
     playerId,
     displayName,
     nameClaimed,
@@ -257,7 +285,8 @@ export function migrateProfile(input: unknown, now = Date.now()): Profile {
     lastLoginAt: finiteFloor(raw.lastLoginAt, now),
     prosperity: finiteFloor(raw.prosperity, 0),
     coins: finiteFloor(raw.coins, finiteFloor(raw.stardust, 0)),
-    pantry: validPantry(raw.pantry),
+    pantry,
+    ingredientUnlocks,
     daily: validDaily(raw.daily),
     unlockedGames: uniqueStrings(raw.unlockedGames, defaults.unlockedGames),
     cosmetics: {
@@ -357,7 +386,22 @@ export class ProfileService {
     const add = Math.floor(Number.isFinite(amount) ? amount : 0);
     if (add <= 0) return;
     this.profile.pantry[id] = Math.min(PANTRY_CAP, (this.profile.pantry[id] ?? 0) + add);
+    if (!this.profile.ingredientUnlocks.includes(id)) {
+      this.profile.ingredientUnlocks.push(id);
+    }
     this.save();
+  }
+
+  /** 记录「曾经获得过」；就算之后卖光，营业供应也不会回退。 */
+  markIngredient(id: string): void {
+    if (!id || !INGREDIENT_IDS.includes(id)) return;
+    if (this.profile.ingredientUnlocks.includes(id)) return;
+    this.profile.ingredientUnlocks.push(id);
+    this.save();
+  }
+
+  ingredientUnlocked(id: string): boolean {
+    return this.profile.ingredientUnlocks.includes(id);
   }
 
   /** 原子扣除：材料不够时一件都不扣。 */

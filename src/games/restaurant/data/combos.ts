@@ -81,6 +81,8 @@ const SEEDS: readonly Omit<ComboRecipe, 'id'>[] = [
   { inputs: ['berry', 'beanpaste', 'riceflour'], shape: 'line3', output: 'berry-cake', seconds: 2.8, hint: '莓果、豆沙、米粉做糕' },
   { inputs: ['rose', 'flour', 'flour'], shape: 'L3', output: 'rose-cake', seconds: 2.8, hint: '玫瑰和两份面粉做鲜花饼' },
   { inputs: ['osmanthus', 'riceflour', 'riceflour'], shape: 'line3', output: 'osmanthus-cake', seconds: 2.8, hint: '桂花和两份米粉蒸糕' },
+  { inputs: ['radish', 'flour'], shape: 'domino', output: 'radish-cake', seconds: 2.4, hint: '白萝卜和面粉蒸萝卜糕' },
+  { inputs: ['cucumber', 'garlicpaste'], shape: 'domino', output: 'cucumber-salad', seconds: 2.2, hint: '黄瓜拍碎拌蒜蓉' },
   { inputs: ['milk', 'egg'], shape: 'domino', output: 'milk-pudding', seconds: 2.4, hint: '牛奶加鸡蛋蒸布丁' },
   { inputs: ['bread', 'cheese'], shape: 'domino', output: 'cheese-toast', seconds: 2.4, hint: '面包铺奶酪烤吐司' },
 
@@ -93,6 +95,11 @@ const SEEDS: readonly Omit<ComboRecipe, 'id'>[] = [
   { inputs: ['jasmine', 'water'], shape: 'domino', output: 'jasmine-tea', seconds: 1.8, hint: '茉莉泡水' },
   { inputs: ['chrysanthemum', 'water'], shape: 'domino', output: 'chrys-tea', seconds: 1.8, hint: '菊花泡水' },
   { inputs: ['osmanthus', 'water'], shape: 'domino', output: 'osmanthus-tea', seconds: 1.8, hint: '桂花泡水' },
+  { inputs: ['daisy', 'water'], shape: 'domino', output: 'daisy-tea', seconds: 1.8, hint: '雏菊泡水' },
+  { inputs: ['tulip', 'water'], shape: 'domino', output: 'tulip-tea', seconds: 1.8, hint: '郁金香泡水' },
+  { inputs: ['sunflower', 'water'], shape: 'domino', output: 'sunflower-tea', seconds: 1.8, hint: '向日葵泡水' },
+  { inputs: ['lilac', 'water'], shape: 'domino', output: 'lilac-tea', seconds: 1.8, hint: '风信子泡水' },
+  { inputs: ['lotus', 'water'], shape: 'domino', output: 'lotus-tea', seconds: 1.8, hint: '荷花泡水' },
 ];
 
 export const COMBO_RECIPES: readonly ComboRecipe[] = SEEDS.map((seed) => ({
@@ -239,6 +246,13 @@ const LEGACY_RECIPE_IDS: readonly string[] = [
   'jasmine-tea',
   'chrys-tea',
   'osmanthus-tea',
+  'radish-cake',
+  'cucumber-salad',
+  'daisy-tea',
+  'tulip-tea',
+  'sunflower-tea',
+  'lilac-tea',
+  'lotus-tea',
 ];
 
 export function findLegacyRecipe(id: string): ComboRecipe | undefined {

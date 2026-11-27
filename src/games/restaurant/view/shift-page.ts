@@ -1,7 +1,6 @@
 import { Rect, drawText, drawWangduCoin } from '../../../shared/design-system/draw';
 import { drawPaperPanel, drawStickerButton } from '../../../shared/design-system/paper-ui';
 import { COLORS, RADIUS } from '../../../shared/design-system/tokens';
-import { findIngredient } from '../../../shared/content/ingredients';
 import { compactNumber } from '../../../shared/format';
 import {
   SHIFT_SEATS,
@@ -10,10 +9,11 @@ import {
 } from '../systems/shift';
 import { RestaurantViewState } from './restaurant-view-data';
 import { ShiftPageLayout } from './restaurant-types';
-import { drawCounter, drawPalette, drawPreparedShelf } from './counter-view';
+import { drawCounter, drawPreparedShelf } from './counter-view';
 import { drawStove } from './stove-view';
 import { drawSuggestions } from './suggestion-view';
 import { drawCustomerRow } from './shift-view';
+import { drawSupplyRail } from './supply-rail';
 
 export function drawShiftPage(
   ctx: CanvasRenderingContext2D,
@@ -33,11 +33,13 @@ export function drawShiftPage(
     counter: [],
     palette: [],
     paletteBin: { x: 0, y: 0, w: 0, h: 0 },
+    palettePrev: { x: 0, y: 0, w: 0, h: 0 },
+    paletteNext: { x: 0, y: 0, w: 0, h: 0 },
   };
   const bar: Rect = { x: 48, y: top, w: width - 96, h: 52 };
   drawPaperPanel(ctx, bar, { fill: COLORS.paper, radius: RADIUS.lg, stitch: true, seed: 1901 });
   if (!shift) {
-    drawText(ctx, '点「开张」：客人排队，吧台原料无限供应', bar.x + 16, bar.y + 30, {
+    drawText(ctx, '点「开张」：已解锁原材料无限供应，先去农牧场收获', bar.x + 16, bar.y + 30, {
       size: 13,
       color: COLORS.inkSoft,
       maxWidth: bar.w - 170,
@@ -80,9 +82,9 @@ export function drawShiftPage(
   });
   const close: Rect = { x: bar.x + bar.w - 116, y: bar.y + 9, w: 104, h: 34 };
   base.closeShift = close;
-  drawStickerButton(ctx, close, '打烊', {
-    fill: COLORS.paper,
-    textColor: COLORS.ink,
+  drawStickerButton(ctx, close, shift.closing ? '打烊中' : '打烊', {
+    fill: shift.closing ? COLORS.gold : COLORS.paper,
+    textColor: shift.closing ? COLORS.honeyDeep : COLORS.ink,
     fontSize: 13,
     radius: RADIUS.md,
     seed: 1905,
@@ -159,21 +161,11 @@ export function drawShiftPage(
   base.counter = counter;
   drawCounter(ctx, counter, shift.counter, state.selectedCounter);
 
-  const infiniteStore: Record<string, number> = {};
-  for (const id of shift.supply) infiniteStore[id] = Infinity;
   base.paletteBin = { x: 48, y: supplyTop, w: width - 96, h: supplyH };
-  base.palette = drawPalette(
-    ctx,
-    base.paletteBin,
-    shift.supply.map((id) => findIngredient(id)).filter(
-      (item): item is NonNullable<typeof item> => Boolean(item),
-    ),
-    infiniteStore,
-    true,
-    7,
-    '无限供应 · 点一下补位，拖到备料台',
-    true,
-  );
+  const rail = drawSupplyRail(ctx, base.paletteBin, state.supplyRail, state.supplyScroll);
+  base.palette = rail.chips;
+  base.palettePrev = rail.prev;
+  base.paletteNext = rail.next;
 
   return base;
 }

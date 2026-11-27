@@ -47,9 +47,16 @@ import {
   createShift,
   serveFromPrepared,
   settleShift,
+  shiftSupplyFromUnlocks,
+  shiftSupplySlots,
   shiftTier,
+  startClosing,
   storePrepared,
 } from '../src/games/restaurant/systems/shift';
+import {
+  snapSupplyScroll,
+  supplyRailMetrics,
+} from '../src/games/restaurant/view/restaurant-view-data';
 import { adviceForDish, adviceForItem } from '../src/games/restaurant/systems/advice';
 import { contextAdvice } from '../src/games/restaurant/systems/context-advice';
 
@@ -92,7 +99,7 @@ describe('restaurant recipes', () => {
         item.id,
       ).toBe(true);
     }
-    expect(DISH_MENU.length).toBe(31);
+    expect(DISH_MENU.length).toBe(33);
     expect(findCombo('flour', 'water')?.output).toBe('noodle');
     expect(comboHintForOutput('tomato-noodle')).toContain('面粉+清水→挂面');
     expect(recipeSteps('mixed-noodle')).toBe(4);
@@ -225,6 +232,7 @@ describe('restaurant orders and save', () => {
     expect(ensureRestaurantDaily(save, '2026-11-27')).toBe(true);
     expect(ensureRestaurantDaily(save, '2026-11-27')).toBe(false);
     save.dailyServed = RESTAURANT_DAILY_GOAL;
+    expect(RESTAURANT_DAILY_REWARD).toEqual({ coins: 150, prosperity: 3 });
     expect(claimRestaurantDaily(save)).toEqual(RESTAURANT_DAILY_REWARD);
     expect(claimRestaurantDaily(save)).toBeNull();
     expect(ensureRestaurantDaily(save, '2026-11-28')).toBe(true);
@@ -241,7 +249,8 @@ describe('restaurant orders and save', () => {
       served: 7,
       totalCoins: 640,
     });
-    expect(save.schemaVersion).toBe(5);
+    expect(save.schemaVersion).toBe(6);
+    expect(save.perfectCloses).toBe(0);
     expect(save.dailyServed).toBe(0);
     expect(save.dailyClaimed).toBe(false);
     expect(save.served).toBe(7);
@@ -255,17 +264,24 @@ describe('restaurant orders and save', () => {
 });
 
 describe('restaurant shift', () => {
-  it('gates eggs and milk behind the ranch supply unlock', () => {
-    const baseIds = buildShiftOrderPool(SHIFT_BASE_SUPPLY).map((entry) => entry.item.id);
+  it('builds the supply only from harvested raw ingredients', () => {
+    expect(SHIFT_BASE_SUPPLY).toEqual(['water']);
+    expect(buildShiftOrderPool(SHIFT_BASE_SUPPLY)).toEqual([]);
+
+    const supply = shiftSupplyFromUnlocks(['wheat', 'lettuce', 'egg', 'flour', 'rose']);
+    expect(supply).toEqual(['water', 'lettuce', 'wheat', 'rose', 'egg']);
+    expect(supply).not.toContain('flour');
+
+    const orderIds = buildShiftOrderPool(supply).map((entry) => entry.item.id);
+    expect(orderIds).toContain('spring-noodle');
+    expect(orderIds).not.toContain('tomato-egg');
+
     const fullIds = buildShiftOrderPool(SHIFT_SUPPLY).map((entry) => entry.item.id);
-    expect(baseIds).toContain('spring-noodle');
-    expect(baseIds).not.toContain('tomato-egg');
     expect(fullIds).toContain('tomato-egg');
 
     const base = createShift(12, SHIFT_BASE_SUPPLY);
-    expect(base.supply).not.toContain('egg');
-    expect(base.supply).not.toContain('milk');
-    expect(base.orderPool.every((entry) => baseIds.includes(entry.item.id))).toBe(true);
+    expect(base.supply).toEqual(['water']);
+    expect(base.orderPool).toEqual([]);
   });
 
   it('spawns a 1-5 item order from the supply pool and pays after eating', () => {
@@ -277,7 +293,7 @@ describe('restaurant shift', () => {
     expect(customer.orders.length).toBeLessThanOrEqual(5);
     expect(customer.orders.every((id) => SHIFT_ORDER_IDS.includes(id))).toBe(true);
     expect(SHIFT_ORDER_IDS).toContain('casserole-family');
-    expect(SHIFT_ORDER_IDS).not.toContain('pork-noodle');
+    expect(SHIFT_ORDER_IDS).toContain('pork-noodle');
     expect(SHIFT_ORDER_IDS).not.toContain('four-treasure-noodle');
 
     shift.prepared[0] = { id: customer.orders[0], quality: 1 };
@@ -287,6 +303,14 @@ describe('restaurant shift', () => {
     expect(shift.revenue).toBeGreaterThan(0);
     expect(shift.servedCustomers).toBe(1);
     expect(shift.bestCombo).toBeGreaterThan(0);
+  });
+
+  it('gives each spawned customer a unique id', () => {
+    const shift = createShift(31415, ['water', 'wheat', 'lettuce']);
+    runShift(shift, 25);
+    const ids = shift.customers.map((customer) => customer.id);
+    expect(ids.length).toBeGreaterThan(1);
+    expect(new Set(ids).size).toBe(ids.length);
   });
 
   it('pays less when the dish is charred', () => {
@@ -346,7 +370,43 @@ describe('restaurant shift', () => {
     expect(normal.penalty).toBe(0);
     const penalized = settleShift({ ...shift, finished: false }, true);
     expect(penalized.penalty).toBeGreaterThan(0);
-    expect(penalized.netRevenue).toBe(0);
+    expect(penalized.netRevenue).toBeLessThan(0);
+    expect(penalized.perfect).toBe(false);
+    expect(penalized.walletLoss).toBe(0);
+  });
+
+  it('enters closing without adding customers and settles perfectly when empty', () => {
+    const shift = createShift(51, ['water', 'wheat', 'lettuce']);
+    expect(startClosing(shift)).toBe(true);
+    expect(startClosing(shift)).toBe(false);
+    const before = shift.nextId;
+    runShift(shift, 20);
+    expect(shift.nextId).toBe(before);
+    const summary = settleShift(shift, false);
+    expect(summary.perfect).toBe(true);
+    expect(summary.penalty).toBe(0);
+    expect(summary.netRevenue).toBe(0);
+  });
+
+  it('charges 30% of unserved orders when a closing customer leaves', () => {
+    const shift = createShift(52, ['water', 'wheat', 'lettuce']);
+    shift.customers.push({
+      id: 77,
+      seat: 0,
+      orders: ['spring-noodle'],
+      servedQuality: [null],
+      patience: 0.1,
+      patienceMax: 40,
+      eating: 0,
+    });
+    startClosing(shift);
+    advanceShift(shift, 0.2);
+    expect(shift.lost).toBe(1);
+    expect(shift.closingPenalty).toBe(26);
+    const summary = settleShift(shift, false);
+    expect(summary.perfect).toBe(false);
+    expect(summary.penalty).toBe(26);
+    expect(summary.netRevenue).toBe(-26);
   });
 
   it('carries recycled feed into settlement', () => {
@@ -375,6 +435,33 @@ describe('restaurant shift', () => {
       expect(customer.orders.length).toBeGreaterThanOrEqual(1);
       expect(customer.orders.length).toBeLessThanOrEqual(5);
     }
+  });
+});
+
+describe('restaurant supply rail', () => {
+  it('puts unlocked slots first and locks the rest', () => {
+    const slots = shiftSupplySlots(['wheat', 'rose', 'egg']);
+    expect(slots[0]).toMatchObject({ id: 'water', unlocked: true, source: 'base' });
+    const firstLocked = slots.findIndex((slot) => !slot.unlocked);
+    expect(firstLocked).toBeGreaterThan(1);
+    expect(slots.slice(0, firstLocked).every((slot) => slot.unlocked)).toBe(true);
+    expect(slots.slice(firstLocked).every((slot) => !slot.unlocked)).toBe(true);
+    expect(slots.some((slot) => slot.id === 'wheat' && slot.unlocked)).toBe(true);
+    expect(slots.some((slot) => slot.id === 'rose' && slot.unlocked)).toBe(true);
+    expect(slots.some((slot) => slot.id === 'egg' && slot.unlocked)).toBe(true);
+    expect(slots.some((slot) => slot.id === 'flour')).toBe(false);
+  });
+
+  it('computes a horizontal scroll range with a two-row rail', () => {
+    const slots = shiftSupplySlots([]);
+    const metrics = supplyRailMetrics(slots.length, 654);
+    expect(metrics.maxScroll).toBeGreaterThan(0);
+    expect(metrics.chipW).toBeGreaterThan(0);
+    expect(supplyRailMetrics(1, 654).maxScroll).toBe(0);
+
+    const step = metrics.chipW + 6;
+    expect(snapSupplyScroll(step * 2 + 3, slots.length, 654)).toBeCloseTo(step * 2);
+    expect(snapSupplyScroll(99999, slots.length, 654)).toBeCloseTo(metrics.maxScroll);
   });
 });
 

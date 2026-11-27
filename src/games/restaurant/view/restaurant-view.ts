@@ -19,8 +19,10 @@ interface Layout {
   craftTabs: Record<CraftTab, Rect>;
   counter: Rect[];
   stoves: KitchenPageLayout['stoves'];
-  palette: Array<{ id: string; rect: Rect }>;
+  palette: Array<{ id: string; rect: Rect; locked?: boolean }>;
   paletteBin: Rect;
+  palettePrev: Rect;
+  paletteNext: Rect;
   prepared: Rect[];
   customers: Array<{ id: number; rect: Rect }>;
   tables: Rect[];
@@ -44,6 +46,8 @@ function emptyLayout(): Layout {
     stoves: [],
     palette: [],
     paletteBin: { ...EMPTY },
+    palettePrev: { ...EMPTY },
+    paletteNext: { ...EMPTY },
     prepared: [],
     customers: [],
     tables: [],
@@ -191,6 +195,12 @@ export class RestaurantView {
     this.layout.counter = layout.counter;
     this.layout.palette = layout.palette;
     this.layout.paletteBin = layout.paletteBin;
+    this.layout.palettePrev = layout.palettePrev;
+    this.layout.paletteNext = layout.paletteNext;
+  }
+
+  supplyBinRect(): Rect {
+    return this.layout.paletteBin;
   }
 
   drawSettle(
@@ -198,8 +208,9 @@ export class RestaurantView {
     width: number,
     height: number,
     summary: ShiftSummary | null,
+    perfectCloses = 0,
   ): void {
-    const settle = drawSettleOverlay(ctx, width, height, summary);
+    const settle = drawSettleOverlay(ctx, width, height, summary, perfectCloses);
     this.layout.settle = settle ?? { ...EMPTY };
   }
 
@@ -249,8 +260,14 @@ export class RestaurantView {
       return null;
     }
     if (inside(this.layout.closeShift)) return { kind: 'close-shift' };
+    if (this.layout.palettePrev.w > 0 && inside(this.layout.palettePrev)) {
+      return { kind: 'supply-arrow', direction: -1 };
+    }
+    if (this.layout.paletteNext.w > 0 && inside(this.layout.paletteNext)) {
+      return { kind: 'supply-arrow', direction: 1 };
+    }
     for (const chip of this.layout.palette) {
-      if (inside(chip.rect)) return { kind: 'palette', id: chip.id };
+      if (inside(chip.rect)) return { kind: 'palette', id: chip.id, locked: chip.locked };
     }
     if (inside(this.layout.paletteBin)) return { kind: 'palette-bin' };
     for (let index = 0; index < this.layout.counter.length; index += 1) {

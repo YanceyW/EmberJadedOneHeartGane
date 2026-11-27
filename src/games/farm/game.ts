@@ -105,11 +105,17 @@ class FarmGame implements GameInstance {
       const result = harvest(this.save, index, now, this.ctx.profile.pantry());
       if (!result) return;
       const crop = findCrop(result.cropId);
+      const newlyUnlocked = !this.ctx.profile.ingredientUnlocked(result.cropId);
+      this.ctx.profile.markIngredient(result.cropId);
       this.ctx.profile.addProsperity(1);
       this.persist();
       this.ctx.feedback.reward(x, y);
       this.ctx.feedback.burst('coin', x, y, 0.7);
-      this.toast(`收获 ${crop?.name ?? '作物'} ×${result.amount}`);
+      this.toast(
+        `收获 ${crop?.name ?? '作物'} ×${result.amount}${
+          newlyUnlocked ? ' · 营业已解锁' : ''
+        }`,
+      );
       return;
     }
 
@@ -178,6 +184,11 @@ class FarmGame implements GameInstance {
       this.toast('还没有成熟的作物');
       return;
     }
+    const newlyUnlocked: string[] = [];
+    for (const id of Object.keys(result.crops)) {
+      if (!this.ctx.profile.ingredientUnlocked(id)) newlyUnlocked.push(id);
+      this.ctx.profile.markIngredient(id);
+    }
     this.ctx.profile.addProsperity(result.total);
     this.persist();
     this.ctx.feedback.reward(x, y);
@@ -185,7 +196,11 @@ class FarmGame implements GameInstance {
     const names = Object.entries(result.crops)
       .map(([id, amount]) => `${findCrop(id)?.name ?? id}×${amount}`)
       .join('、');
-    this.toast(`一键收获 ${result.total} 份：${names}`);
+    this.toast(
+      `一键收获 ${result.total} 份：${names}${
+        newlyUnlocked.length > 0 ? ' · 营业已解锁' : ''
+      }`,
+    );
   }
 
   private sellAt(x: number, y: number): void {

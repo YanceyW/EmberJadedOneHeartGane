@@ -43,7 +43,7 @@ function noopProxy(): Record<string, (...args: unknown[]) => unknown> {
   ) as Record<string, (...args: unknown[]) => unknown>;
 }
 
-function makeContext(): { ctx: GameContext; pantry: Record<string, number>; storage: Map<string, unknown> } {
+function makeContext(startingCoins = 300): { ctx: GameContext; pantry: Record<string, number>; storage: Map<string, unknown> } {
   const page: Record<string, number> = {
     water: 5,
     flour: 5,
@@ -56,21 +56,27 @@ function makeContext(): { ctx: GameContext; pantry: Record<string, number>; stor
     onion: 5,
   };
   const storage = new Map<string, unknown>();
+  let wallet = startingCoins;
   const profile = {
     pantry: () => page,
     get: () => ({
-      coins: 300,
+      coins: wallet,
       displayName: '测试',
+      ingredientUnlocks: Object.keys(page),
       cosmetics: { ownedTiles: [] as string[] },
     }),
     save: () => undefined,
     addCoins: (amount: number) => {
-      void amount;
+      if (Number.isFinite(amount) && amount > 0) wallet += Math.floor(amount);
     },
     addProsperity: (amount: number) => {
       void amount;
     },
-    loseCoins: (amount: number) => Math.min(300, amount),
+    loseCoins: (amount: number) => {
+      const actual = Math.min(wallet, Math.max(0, Math.floor(amount)));
+      wallet -= actual;
+      return actual;
+    },
     addPantry: (id: string, amount = 1) => {
       page[id] = (page[id] ?? 0) + amount;
     },
@@ -122,6 +128,20 @@ describe('restaurant controller', () => {
     expect(saved.counter[0]).toBeNull();
     expect(saved.stoves[0].slots[0]).toBe('water');
     game.exit?.();
+  });
+
+  it('never takes the wallet below zero on a negative settlement', () => {
+    const { ctx } = makeContext(5);
+    const game = definition.create(ctx);
+    game.enter?.();
+    game.render(ctx.renderer);
+    game.onTap(598, 277);
+    game.render(ctx.renderer);
+    game.onTap(624, 346);
+    for (let i = 0; i < 8; i += 1) game.update(0.5);
+    game.render(ctx.renderer);
+    game.exit?.();
+    expect(ctx.profile.get().coins).toBe(0);
   });
 
   it('can open, switch to shift, start, add water and exit without throwing', () => {

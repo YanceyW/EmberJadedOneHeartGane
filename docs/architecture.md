@@ -110,9 +110,9 @@ interface Scene {
 - `src/games/garden`：6 块花圃、9 种花、浇水、花单，收获进 `profile.pantry`；`systems/garden.ts` + `view/garden-view.ts` / `flower-art.ts`；存档 `save:garden` v2。
 - `src/games/merge`：5×5 加工台、合并链、加工单 + 原料间 12 条半成品配方（含饲料与补齐）；`systems/merge.ts` + `data/recipes.ts` + `view/merge-view.ts` / `item-art.ts`；存档 `save:merge` v2。
 - `src/games/aquarium`：6 鱼位、8 种鱼、喂食、泡泡币、访客订单；`systems/aquarium.ts` + `view/aquarium-view.ts`；存档 `save:aquarium`。
-- `src/games/restaurant`：**备料台 / 点菜 / 无时限营业** 三条线；`systems/{counter,stove,advice,context-advice,save,orders,shift}.ts` + `game-drop.ts` / `game-serve.ts` + `view/{restaurant-view,kitchen-page,shift-page,counter-view,stove-view,suggestion-view,shift-view,order-view,overlay-view}.ts`；存档 `save:restaurant` v5。
+- `src/games/restaurant`：**备料台 / 点菜 / 无时限营业** 三条线；`systems/{counter,stove,advice,context-advice,save,orders,shift}.ts` + `game-drop.ts` / `game-serve.ts` + `view/{restaurant-view,kitchen-page,shift-page,counter-view,stove-view,suggestion-view,shift-view,order-view,overlay-view,supply-rail}.ts`；存档 `save:restaurant` v6。
 
-> 货物目录与价格只在 `src/shared/content/ingredients.ts`（82 种），菜谱在 `shared/content/menu.ts`，组合配方在 `games/restaurant/data/combos.ts`，货物图形在 `shared/design-system/goods-art.ts`，各馆不要另建价格表或图形。
+> 货物目录与价格只在 `src/shared/content/ingredients.ts`（89 种），菜谱在 `shared/content/menu.ts`，组合配方在 `games/restaurant/data/combos.ts`，货物图形在 `shared/design-system/goods-art.ts`，各馆不要另建价格表或图形。
 
 六个分包都在退出时向 `leaderboard` 提交本馆分数；主包只通过 `GameRegistry` 与分包交互。
 跨馆数据只走 `ProfileService`（`pantry` 仓库 / `coins` / `prosperity`），分包之间不互相 import；大数字展示统一走 `shared/format.ts`。
@@ -158,7 +158,7 @@ interface SaveEnvelope<T> {
 - 每款游戏独立 key：`save:<gameId>`；
 - 大厅 profile：`profile`；
 - 写入节流（≥500ms）+ 切后台强制写；
-- migration 链：各存档按自身版本逐级迁移（餐厅当前 v1→v5），每步纯函数 + 测试；
+- migration 链：各存档按自身版本逐级迁移（餐厅当前 v1→v6），每步纯函数 + 测试；
 - 损坏存档：备份到 `save:<id>:corrupt`，重建默认存档。
 
 ## 10. 云

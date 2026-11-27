@@ -27,7 +27,7 @@ interface SaveEnvelope<T> {
 
 ```ts
 interface Profile {
-  schemaVersion: 7;
+  schemaVersion: 8;
   playerId: string;           // 本地稳定 ID，用于离线兜底名字
   displayName: string;        // 王都居民-桃酥；从固定词库分配
   nameClaimed: boolean;       // 是否已同步到云端 players
@@ -36,6 +36,7 @@ interface Profile {
   prosperity: number;         // 王都繁荣度
   coins: number;              // 王都币；旧 stardust 自动迁移
   pantry: Record<string, number>; // 王都仓库：全馆唯一的货物库存（作物/花卉/半成品/茶饮/成菜）
+  ingredientUnlocks: string[]; // 曾经获得过的食材；营业只筛 crop/flower/ranch
   daily: {
     date: string;             // dayKey（本地日期 YYYY-MM-DD）
     claimed: string[];        // 今天已交付的委托 id
@@ -81,6 +82,7 @@ interface Profile {
 - `v4 → v5`：新增 `tileStyle/ownedTiles`；旧存档默认 `sweets`，已拥有的皮肤才会被装备。
 - `v5 → v6`：新增 `pantry`（王都仓库）；只保留已知食材、0–999，未知键直接丢弃。
 - `v6 → v7`：新增 `daily { date, claimed, streak, lastClear }`；旧存档 `date` 为空、`claimed` 空数组、`streak` 0，跨天由 `dailySync(now)` 自动重抽。
+- `v7 → v8`：新增 `ingredientUnlocks`；从现有 `pantry` key 播种；旧存档若已解锁牧场方块，补 `egg`、`milk`。`addPantry()` 与农牧场收获都会追加记录，卖光不回退。
 
 ## 4. 王都三消
 
@@ -220,13 +222,14 @@ interface AquariumSave {
 
 ```ts
 interface RestaurantSave {
-  schemaVersion: 5;
+  schemaVersion: 6;
   tables: string[];         // 3 张桌当前的菜（菜单 id）
   served: number;           // 累计上菜
   totalCoins: number;       // 累计点菜营业额
   bestRevenue: number;      // 营业最好成绩
   bestCombo: number;
   shifts: number;           // 营业局数
+  perfectCloses: number;    // 完美打烊次数
   counter: (string|null)[]; // 15 格备料台，每格一件
   stoves: StoveState[];     // 2 个 3×3 灶台（含烹饪/出锅品质）
   discovered: string[];     // 已发现配方 slug
@@ -237,8 +240,8 @@ interface RestaurantSave {
 ```
 
 - key：`save:restaurant`；
-- v1 → v2：桌子按菜单 id 重新抽；v2 → v3：补组合台与已发现配方；v3 → v4：旧 `craft` 只保留物品 id 放进备料台，计时丢弃，旧 `combo-N` 映射到稳定 slug；v4 → v5：补点菜每日目标字段；
-- 三条线：**备料台/灶台**（5×3 备料台 + 2 个 3×3 灶眼，成品进 `profile.pantry`）、**点菜**（成品 → 菜价 + 繁荣度）、**营业**（无限基础材料现做现卖，不读写仓库；1–5 道订单、品质计价、打烊/退出结算）；
+- v1 → v2：桌子按菜单 id 重新抽；v2 → v3：补组合台与已发现配方；v3 → v4：旧 `craft` 只保留物品 id 放进备料台，计时丢弃，旧 `combo-N` 映射到稳定 slug；v4 → v5：补点菜每日目标字段；v5 → v6：补 `perfectCloses`；
+- 三条线：**备料台/灶台**（5×3 备料台 + 2 个 3×3 灶眼，成品进 `profile.pantry`）、**点菜**（成品 → 菜价 + 繁荣度，每日 8 道奖励 150 币 +3 繁荣）、**营业**（清水 + 已解锁 crop/flower/ranch 现做现卖，不读写仓库；1–5 道订单、品质计价、打烊中/退出结算；净收入可为负，钱包最低 0）；
 - 原料与成品都在 `profile.pantry`；营业成品只在本局有效；
 - 排行榜 id `restaurant`，分数 = 累计点菜营业额 `totalCoins` + 营业最好成绩 `bestRevenue`。
 
@@ -257,6 +260,7 @@ interface RanchSave {
 
 - key：`save:ranch`；v1 → v2 补 `starterFeedGiven`，并给首次进入的玩家送 2 份饲料；
 - 四个固定畜栏（鸡/牛/猪/羊），每栏最多 4 只；
+- 每种产物第一次收取时写入 `profile.ingredientUnlocks`，之后营业无限供应对应原材料；卖光不回退；
 - `readyAt: 0` = 待喂食；>0 = 该时间点产出；
 - 饲料消耗 `profile.pantry.feed`；牧产写回 `profile.pantry`；
 - 首次收获解锁三消 `ranch` 方块皮肤；

@@ -664,6 +664,7 @@ export class LobbyScene implements Scene {
       pantry: profile.pantry,
       selected: this.storageSelected,
       tab: this.storageTab,
+      ingredientUnlocks: profile.ingredientUnlocks,
     });
   }
 

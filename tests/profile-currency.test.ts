@@ -34,12 +34,13 @@ class MemoryStorage implements ProfileStorage {
   }
 }
 
-describe('profile v7', () => {
+describe('profile v8', () => {
   it('creates a default unique-style name and starting cosmetics', () => {
     const profile = createDefaultProfile(1700000000000, 'player-test');
-    expect(profile.schemaVersion).toBe(7);
+    expect(profile.schemaVersion).toBe(8);
     expect(profile.displayName.startsWith(PLAYER_NAME_PREFIX)).toBe(true);
     expect(profile.coins).toBe(0);
+    expect(profile.ingredientUnlocks).toEqual([]);
     expect(profile.cosmetics.ownedIcons).toContain('candy');
     expect(profile.cosmetics.ownedOutfits).toContain('classic');
     expect(profile.cosmetics.weather).toBe('clear');
@@ -60,7 +61,7 @@ describe('profile v7', () => {
       prosperity: 12,
       settings: { music: false, quality: 'low', ambientEffects: false },
     });
-    expect(profile.schemaVersion).toBe(7);
+    expect(profile.schemaVersion).toBe(8);
     expect(profile.coins).toBe(345);
     expect(profile.prosperity).toBe(12);
     expect(profile.settings.music).toBe(false);
@@ -105,6 +106,40 @@ describe('profile v7', () => {
     expect(service.loseCoins(999)).toBe(45);
     expect(service.get().coins).toBe(0);
     expect(service.loseCoins(-5)).toBe(0);
+  });
+
+  it('records ingredient unlocks when goods enter the shared pantry', () => {
+    const service = new ProfileService(new MemoryStorage());
+    expect(service.ingredientUnlocked('wheat')).toBe(false);
+    service.addPantry('wheat', 1);
+    expect(service.ingredientUnlocked('wheat')).toBe(true);
+    service.markIngredient('egg');
+    expect(service.ingredientUnlocked('egg')).toBe(true);
+    expect(service.get().ingredientUnlocks).toEqual(['wheat', 'egg']);
+    service.addPantry('wheat', 3);
+    expect(service.get().ingredientUnlocks).toEqual(['wheat', 'egg']);
+    service.markIngredient('unknown');
+    expect(service.get().ingredientUnlocks).toEqual(['wheat', 'egg']);
+  });
+
+  it('migrates pantry and old ranch progress into ingredient unlocks', () => {
+    const fromPantry = migrateProfile({
+      schemaVersion: 7,
+      pantry: { wheat: 2, tomato: 1, flour: 4 },
+    });
+    expect(fromPantry.ingredientUnlocks).toEqual(['wheat', 'tomato', 'flour']);
+
+    const fromRanch = migrateProfile({
+      schemaVersion: 7,
+      cosmetics: { ownedTiles: ['sweets', 'ranch'] },
+    });
+    expect(fromRanch.ingredientUnlocks).toEqual(['egg', 'milk']);
+
+    const explicit = migrateProfile({
+      schemaVersion: 7,
+      ingredientUnlocks: ['wheat', 'ghost', 'wheat'],
+    });
+    expect(explicit.ingredientUnlocks).toEqual(['wheat']);
   });
 
   it('keeps one shared pantry for every venue', () => {

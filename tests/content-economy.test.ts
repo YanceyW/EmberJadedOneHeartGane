@@ -79,12 +79,28 @@ describe('content economy', () => {
   });
 
   it('ships drink recipes alongside dishes', () => {
-    expect(DISH_MENU.length).toBe(31);
-    expect(DRINK_MENU.length).toBe(5);
+    expect(DISH_MENU.length).toBe(33);
+    expect(DRINK_MENU.length).toBe(10);
     for (const drink of DRINK_MENU) {
       expect(findIngredient(drink.id)?.kind).toBe('drink');
     }
-    expect(INGREDIENTS.length).toBe(1 + 18 + 9 + 4 + 14 + 5 + 31);
+    expect(INGREDIENTS.length).toBe(1 + 18 + 9 + 4 + 14 + 10 + 33);
+  });
+
+  it('gives every raw ingredient a restaurant use', () => {
+    const restaurantInputs = new Set<string>();
+    for (const recipe of COMBO_RECIPES) {
+      for (const id of recipe.inputs) restaurantInputs.add(id);
+    }
+    for (const item of MENU) {
+      for (const need of item.needs) restaurantInputs.add(need.id);
+    }
+    for (const item of INGREDIENTS) {
+      if (item.kind !== 'crop' && item.kind !== 'flower' && item.kind !== 'ranch') {
+        continue;
+      }
+      expect(restaurantInputs.has(item.id), `${item.id} 没有餐厅用途`).toBe(true);
+    }
   });
 
   it('never lets a restaurant combo be sold for more than its inputs', () => {
