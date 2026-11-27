@@ -1,12 +1,13 @@
 import { Rect, drawText, drawWangduCoin } from '../../../shared/design-system/draw';
 import { drawPaperPanel, drawStickerButton } from '../../../shared/design-system/paper-ui';
 import { COLORS, RADIUS } from '../../../shared/design-system/tokens';
+import { findIngredient } from '../../../shared/content/ingredients';
 import { compactNumber } from '../../../shared/format';
 import {
   SHIFT_SEATS,
   ShiftState,
+  ShiftSupplySlot,
   shiftAverageQuality,
-  shiftSupplySlots,
 } from '../systems/shift';
 import { RestaurantViewState } from './restaurant-view-data';
 import { ShiftPageLayout } from './restaurant-types';
@@ -164,7 +165,7 @@ export function drawShiftPage(
 
   base.paletteBin = { x: 48, y: supplyTop, w: width - 96, h: supplyH };
   // 兼容旧分包热更新：旧 game.js 可能还没有 supplyRail 字段。
-  const supplySlots = state.supplyRail ?? shiftSupplySlots(shift.supply);
+  const supplySlots = state.supplyRail ?? legacySupplySlots(shift.supply);
   const rail = drawSupplyRail(
     ctx,
     base.paletteBin,
@@ -176,6 +177,27 @@ export function drawShiftPage(
   base.paletteNext = rail.next;
 
   return base;
+}
+
+function legacySupplySlots(supply: readonly string[]): ShiftSupplySlot[] {
+  const slots: ShiftSupplySlot[] = [];
+  for (const id of supply) {
+    const item = findIngredient(id);
+    if (!item) continue;
+    slots.push({
+      id,
+      unlocked: true,
+      source:
+        item.id === 'water'
+          ? 'base'
+          : item.kind === 'flower'
+            ? 'garden'
+            : item.kind === 'ranch'
+              ? 'ranch'
+              : 'farm',
+    });
+  }
+  return slots;
 }
 
 function formatDuration(seconds: number): string {
