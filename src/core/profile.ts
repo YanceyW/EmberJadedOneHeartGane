@@ -1,4 +1,6 @@
 import { generateLocalName, isValidDisplayName } from '../shared/content/player-names';
+import { INGREDIENT_IDS, IngredientNeed, PANTRY_CAP } from '../shared/content/ingredients';
+import { dayKey, DAILY_ORDER_COUNT } from '../shared/content/daily-orders';
 
 export type ProfileQuality = 'auto' | 'high' | 'mid' | 'low';
 
@@ -29,7 +31,18 @@ export interface ProfileCosmetics {
   ownedIcons: string[];
   royalOutfit: string;
   ownedOutfits: string[];
+  /** 当前展示的天气；天气免费，仅做外观。 */
+  weather: string;
+  /** 当前节日风格。 */
+  style: string;
+  ownedStyles: string[];
+  /** 当前三消方块皮肤（王都小铺购买）。 */
+  tileStyle: string;
+  ownedTiles: string[];
+  /** 当前选择展示的建设等级（可低于已解锁等级）。 */
   build: ProfileBuild;
+  /** 已购买的最高建设等级。 */
+  buildMax: ProfileBuild;
 }
 
 /** 只做无名环境 NPC：不显示名字、不可交互、不可换装。 */
@@ -39,8 +52,16 @@ export interface Resident {
   since: string;
 }
 
+/** 每日委托进度：跨日只重置 claimed，连续天数靠 lastClear 记。 */
+export interface ProfileDaily {
+  date: string;
+  claimed: string[];
+  streak: number;
+  lastClear: string;
+}
+
 export interface Profile {
-  schemaVersion: 3;
+  schemaVersion: 7;
   playerId: string;
   displayName: string;
   /** 是否已经在云端领取过唯一名字；离线兜底名为 false。 */
@@ -49,6 +70,9 @@ export interface Profile {
   lastLoginAt: number;
   prosperity: number;
   coins: number;
+  /** 王都仓库：作物/花卉/半成品/茶饮/成菜共用的唯一库存。 */
+  pantry: Record<string, number>;
+  daily: ProfileDaily;
   unlockedGames: string[];
   cosmetics: ProfileCosmetics;
   residents: Resident[];
@@ -90,6 +114,28 @@ function validBuild(value: unknown): ProfileBuild {
   };
 }
 
+function validPantry(value: unknown): Record<string, number> {
+  const pantry: Record<string, number> = {};
+  if (!value || typeof value !== 'object') return pantry;
+  const raw = value as Record<string, unknown>;
+  for (const id of INGREDIENT_IDS) {
+    const amount = raw[id];
+    if (typeof amount !== 'number' || !Number.isFinite(amount) || amount <= 0) continue;
+    pantry[id] = Math.min(PANTRY_CAP, Math.floor(amount));
+  }
+  return pantry;
+}
+
+function validDaily(value: unknown): ProfileDaily {
+  const raw = value && typeof value === 'object' ? (value as Record<string, unknown>) : {};
+  return {
+    date: typeof raw.date === 'string' ? raw.date : '',
+    claimed: uniqueStrings(raw.claimed, []),
+    streak: finiteFloor(raw.streak, 0),
+    lastClear: typeof raw.lastClear === 'string' ? raw.lastClear : '',
+  };
+}
+
 function validResidents(value: unknown): Resident[] {
   if (!Array.isArray(value)) return [];
   const residents: Resident[] = [];
@@ -109,7 +155,7 @@ function validResidents(value: unknown): Resident[] {
 
 export function createDefaultProfile(now = Date.now(), playerId = makePlayerId(now)): Profile {
   return {
-    schemaVersion: 3,
+    schemaVersion: 7,
     playerId,
     displayName: generateLocalName(playerId),
     nameClaimed: false,
@@ -117,13 +163,21 @@ export function createDefaultProfile(now = Date.now(), playerId = makePlayerId(n
     lastLoginAt: now,
     prosperity: 0,
     coins: 0,
+    pantry: {},
+    daily: { date: dayKey(now), claimed: [], streak: 0, lastClear: '' },
     unlockedGames: ['match3'],
     cosmetics: {
       iconStyle: 'candy',
       ownedIcons: ['candy'],
       royalOutfit: 'classic',
       ownedOutfits: ['classic'],
+      weather: 'clear',
+      style: 'classic',
+      ownedStyles: ['classic'],
+      tileStyle: 'sweets',
+      ownedTiles: ['sweets'],
       build: { fountain: 0, lights: 0, garden: 0 },
+      buildMax: { fountain: 0, lights: 0, garden: 0 },
     },
     residents: [],
     lastResidentDate: '',
@@ -175,8 +229,27 @@ export function migrateProfile(input: unknown, now = Date.now()): Profile {
       ? cosmeticRaw.royalOutfit
       : 'classic';
 
+  const ownedStyles = uniqueStrings(cosmeticRaw.ownedStyles, ['classic']);
+  if (!ownedStyles.includes('classic')) ownedStyles.push('classic');
+  const style =
+    typeof cosmeticRaw.style === 'string' && ownedStyles.includes(cosmeticRaw.style)
+      ? cosmeticRaw.style
+      : 'classic';
+  const weather = typeof cosmeticRaw.weather === 'string' ? cosmeticRaw.weather : 'clear';
+  const ownedTiles = uniqueStrings(cosmeticRaw.ownedTiles, ['sweets']);
+  if (!ownedTiles.includes('sweets')) ownedTiles.push('sweets');
+  const tileStyle =
+    typeof cosmeticRaw.tileStyle === 'string' && ownedTiles.includes(cosmeticRaw.tileStyle)
+      ? cosmeticRaw.tileStyle
+      : 'sweets';
+  const build = validBuild(cosmeticRaw.build);
+  const buildMax = validBuild(cosmeticRaw.buildMax);
+  buildMax.fountain = Math.max(buildMax.fountain, build.fountain);
+  buildMax.lights = Math.max(buildMax.lights, build.lights);
+  buildMax.garden = Math.max(buildMax.garden, build.garden);
+
   return {
-    schemaVersion: 3,
+    schemaVersion: 7,
     playerId,
     displayName,
     nameClaimed,
@@ -184,13 +257,21 @@ export function migrateProfile(input: unknown, now = Date.now()): Profile {
     lastLoginAt: finiteFloor(raw.lastLoginAt, now),
     prosperity: finiteFloor(raw.prosperity, 0),
     coins: finiteFloor(raw.coins, finiteFloor(raw.stardust, 0)),
+    pantry: validPantry(raw.pantry),
+    daily: validDaily(raw.daily),
     unlockedGames: uniqueStrings(raw.unlockedGames, defaults.unlockedGames),
     cosmetics: {
       iconStyle,
       ownedIcons,
       royalOutfit,
       ownedOutfits,
-      build: validBuild(cosmeticRaw.build),
+      weather,
+      style,
+      ownedStyles,
+      tileStyle,
+      ownedTiles,
+      build,
+      buildMax,
     },
     residents: validResidents(raw.residents),
     lastResidentDate: typeof raw.lastResidentDate === 'string' ? raw.lastResidentDate : '',
@@ -252,6 +333,44 @@ export class ProfileService {
     return true;
   }
 
+  /** 赔偿等强制扣款：最多扣到 0，返回实际扣掉的金额。 */
+  loseCoins(amount: number): number {
+    const loss = Math.max(0, Math.floor(amount));
+    if (!Number.isFinite(loss) || loss <= 0) return 0;
+    const actual = Math.min(this.profile.coins, loss);
+    this.profile.coins -= actual;
+    this.save();
+    return actual;
+  }
+
+  /** 王都仓库的实时引用；玩法系统直接在它上面加减。 */
+  pantry(): Record<string, number> {
+    return this.profile.pantry;
+  }
+
+  pantryCount(id: string): number {
+    return this.profile.pantry[id] ?? 0;
+  }
+
+  addPantry(id: string, amount = 1): void {
+    if (!id || !INGREDIENT_IDS.includes(id)) return;
+    const add = Math.floor(Number.isFinite(amount) ? amount : 0);
+    if (add <= 0) return;
+    this.profile.pantry[id] = Math.min(PANTRY_CAP, (this.profile.pantry[id] ?? 0) + add);
+    this.save();
+  }
+
+  /** 原子扣除：材料不够时一件都不扣。 */
+  takePantry(needs: readonly IngredientNeed[]): boolean {
+    if (!needs.every((need) => (this.profile.pantry[need.id] ?? 0) >= need.amount)) return false;
+    for (const need of needs) {
+      const left = (this.profile.pantry[need.id] ?? 0) - need.amount;
+      this.profile.pantry[need.id] = Math.max(0, left);
+    }
+    this.save();
+    return true;
+  }
+
   unlockIcon(id: string): void {
     if (!id || this.profile.cosmetics.ownedIcons.includes(id)) return;
     this.profile.cosmetics.ownedIcons.push(id);
@@ -277,9 +396,48 @@ export class ProfileService {
   }
 
   upgradeBuild(track: keyof ProfileBuild): void {
-    const level = this.profile.cosmetics.build[track];
+    const level = this.profile.cosmetics.buildMax[track];
     if (level >= 3) return;
+    this.profile.cosmetics.buildMax[track] = level + 1;
     this.profile.cosmetics.build[track] = level + 1;
+    this.save();
+  }
+
+  /** 已购买过的等级可以自由切换，低等级同样可以选。 */
+  selectBuildLevel(track: keyof ProfileBuild, level: number): void {
+    const max = this.profile.cosmetics.buildMax[track];
+    const target = Math.max(0, Math.min(max, Math.floor(level)));
+    this.profile.cosmetics.build[track] = target;
+    this.save();
+  }
+
+  setWeather(id: string): void {
+    if (!id) return;
+    this.profile.cosmetics.weather = id;
+    this.save();
+  }
+
+  unlockStyle(id: string): void {
+    if (!id || this.profile.cosmetics.ownedStyles.includes(id)) return;
+    this.profile.cosmetics.ownedStyles.push(id);
+    this.save();
+  }
+
+  equipStyle(id: string): void {
+    if (!this.profile.cosmetics.ownedStyles.includes(id)) return;
+    this.profile.cosmetics.style = id;
+    this.save();
+  }
+
+  unlockTile(id: string): void {
+    if (!id || this.profile.cosmetics.ownedTiles.includes(id)) return;
+    this.profile.cosmetics.ownedTiles.push(id);
+    this.save();
+  }
+
+  equipTile(id: string): void {
+    if (!this.profile.cosmetics.ownedTiles.includes(id)) return;
+    this.profile.cosmetics.tileStyle = id;
     this.save();
   }
 
@@ -308,6 +466,30 @@ export class ProfileService {
     if (!Number.isFinite(amount) || amount <= 0) return;
     this.profile.prosperity += Math.floor(amount);
     this.save();
+  }
+
+  /** 读每日委托进度；跨日只重置已交付列表（连续天数在交完时算）。 */
+  dailySync(now = Date.now()): ProfileDaily {
+    const today = dayKey(now);
+    if (this.profile.daily.date !== today) {
+      this.profile.daily = { ...this.profile.daily, date: today, claimed: [] };
+      this.save();
+    }
+    return this.profile.daily;
+  }
+
+  /** 标记一单已交付；三单交齐时顺带累加连续天数。 */
+  markDailyClaimed(orderId: string, now = Date.now()): ProfileDaily {
+    const state = this.dailySync(now);
+    if (!state.claimed.includes(orderId)) state.claimed.push(orderId);
+    if (state.claimed.length >= DAILY_ORDER_COUNT) {
+      const today = dayKey(now);
+      const yesterday = dayKey(now - 24 * 60 * 60 * 1000);
+      state.streak = state.lastClear === yesterday ? state.streak + 1 : 1;
+      state.lastClear = today;
+    }
+    this.save();
+    return state;
   }
 
   updateSettings(patch: Partial<ProfileSettings>): void {

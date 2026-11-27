@@ -163,7 +163,7 @@
 | `login` | ✅ | 启动静默登录，失败自动离线 |
 | `sync` 云存档 | ✅ | 王都三消进入/胜利/退出时同步；冲突按 `mergeSaves` 合并 |
 | `submitScore` | ✅ | 每次过关提交，服务端只保留该玩家该游戏的最高分 |
-| `leaderboard` | ✅ | 大厅底部「排行榜」按游戏分类显示最高分榜（当前三消有数据） |
+| `leaderboard` | ✅ | 大厅底部「排行榜」按 `match3-campaign` / `match3-endless` / 各场馆分类显示最高分榜 |
 | `config` | ⬜ | 云函数已就绪，客户端未接 |
 | `deleteAccount` | ⬜ | 云函数已就绪，客户端目前只删本地数据 |
 

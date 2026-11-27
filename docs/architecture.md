@@ -45,15 +45,19 @@ game.js
 
 LobbyScene
   ├─ computeTownLayout()            平铺世界 + 相机边界
-  ├─ TownArt.ensure()               按阶段烘焙天空/地面/建筑
+  ├─ themes/weather                 节日调色 + 天气覆盖
+  ├─ TownArt.ensure()               按阶段/风格烘焙天空/地面/建筑/设施
   ├─ LobbyAmbient                   大厅环境粒子池
   ├─ LobbyChrome                    纸雕 HUD/弹窗
-  └─ 点击场馆
-      ├─ showLoading()
-      ├─ wx.loadSubpackage({ name })
-      ├─ 分包入口注册 GameDefinition
-      ├─ GameContext 创建
-      └─ SceneManager.replace(GameScene)
+  ├─ 点击场馆（townStructureAt 命中 buildings）
+  │   ├─ showLoading()
+  │   ├─ wx.loadSubpackage({ name })
+  │   ├─ 分包入口注册 GameDefinition
+  │   ├─ GameContext 创建
+  │   └─ SceneManager.replace(GameScene)
+  └─ 点击设施（townStructureAt 命中 facilities，不加载分包）
+      ├─ 王都仓库 → storage 面板（多选卖出）
+      └─ 底栏「每日」→ daily 面板（3 张委托，点交付才扣货）
 ```
 
 ## 4. 场景生命周期
@@ -90,12 +94,28 @@ interface Scene {
 
 ### 5.1 大厅渲染
 
-- 世界宽 1500，默认视口 750；坐标以屏幕中心为 0；
+- 世界宽 1800，默认视口 750；坐标以屏幕中心为 0；
 - `TownCamera` 负责平移/缩放/边界/世界↔屏幕转换；
-- `TownArt` 按 `dawn/day/dusk/night` 烘焙天空、地面、建筑，LRU 2 阶段；
-- 每帧画：天空 → 地面 → 建筑（深度排序，视口裁剪）→ 动态覆盖（招牌/烟/窗光）→ 喷泉/角色/居民/前景 → 环境粒子 → UI；
+- `TownArt` 按 `dawn/day/dusk/night` + 节日风格烘焙天空、地面、建筑，LRU 2 阶段；
+- 每帧画：天空 → 地面 → 建筑（深度排序，视口裁剪）→ 动态覆盖（招牌/烟/窗光）→ 喷泉/角色/居民/风格装饰/前景 → 环境粒子 → 天气 → UI；
 - 前景以 1.04 倍相机位移做轻微视差；
-- 平移/缩放不触发重新烘焙；切换画质或纸纹开关才失效。
+- 平移/缩放/天气不触发重新烘焙；切换画质、纸纹或节日风格才失效。
+
+### 5.2 玩法分包
+
+七个 playable 分包：`match3`、`farm`、`garden`、`merge`、`aquarium`、`ranch`、`restaurant`。
+
+- `src/games/match3`：双模式状态机 + 模式选择 + 方块皮肤（`shared/content/tile-skins.ts`）；存档 `save:match3` v5；排行榜 `match3-campaign` / `match3-endless`。
+- `src/games/farm`：3×3 田地、18 种作物，收获进 `profile.pantry`；`systems/farm.ts` + `view/farm-view.ts` / `crop-art.ts`；存档 `save:farm` v2。
+- `src/games/garden`：6 块花圃、9 种花、浇水、花单，收获进 `profile.pantry`；`systems/garden.ts` + `view/garden-view.ts` / `flower-art.ts`；存档 `save:garden` v2。
+- `src/games/merge`：5×5 加工台、合并链、加工单 + 原料间 12 条半成品配方（含饲料与补齐）；`systems/merge.ts` + `data/recipes.ts` + `view/merge-view.ts` / `item-art.ts`；存档 `save:merge` v2。
+- `src/games/aquarium`：6 鱼位、8 种鱼、喂食、泡泡币、访客订单；`systems/aquarium.ts` + `view/aquarium-view.ts`；存档 `save:aquarium`。
+- `src/games/restaurant`：**备料台 / 点菜 / 无时限营业** 三条线；`systems/{counter,stove,advice,context-advice,save,orders,shift}.ts` + `game-drop.ts` / `game-serve.ts` + `view/{restaurant-view,kitchen-page,shift-page,counter-view,stove-view,suggestion-view,shift-view,order-view,overlay-view}.ts`；存档 `save:restaurant` v5。
+
+> 货物目录与价格只在 `src/shared/content/ingredients.ts`（82 种），菜谱在 `shared/content/menu.ts`，组合配方在 `games/restaurant/data/combos.ts`，货物图形在 `shared/design-system/goods-art.ts`，各馆不要另建价格表或图形。
+
+六个分包都在退出时向 `leaderboard` 提交本馆分数；主包只通过 `GameRegistry` 与分包交互。
+跨馆数据只走 `ProfileService`（`pantry` 仓库 / `coins` / `prosperity`），分包之间不互相 import；大数字展示统一走 `shared/format.ts`。
 
 ## 6. 输入
 
@@ -138,7 +158,7 @@ interface SaveEnvelope<T> {
 - 每款游戏独立 key：`save:<gameId>`；
 - 大厅 profile：`profile`；
 - 写入节流（≥500ms）+ 切后台强制写；
-- migration 链：`v1→v2→v3`，每步纯函数 + 测试；
+- migration 链：各存档按自身版本逐级迁移（餐厅当前 v1→v5），每步纯函数 + 测试；
 - 损坏存档：备份到 `save:<id>:corrupt`，重建默认存档。
 
 ## 10. 云

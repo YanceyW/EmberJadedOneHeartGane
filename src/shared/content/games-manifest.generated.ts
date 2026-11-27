@@ -25,28 +25,55 @@ export const GAMES: GameManifestEntry[] = [
   {
     "id": "garden",
     "title": "王都花园",
-    "subtitle": "种花 · 繁育 · 布置",
+    "subtitle": "播种 · 浇水 · 花束",
     "packageName": "garden",
     "root": "games/garden",
-    "status": "coming-soon",
+    "status": "playable",
     "accent": "leaf"
   },
   {
     "id": "merge",
-    "title": "甜品合成屋",
-    "subtitle": "合并 · 订单 · 装饰",
+    "title": "王都加工屋",
+    "subtitle": "合并 · 加工 · 订单",
     "packageName": "merge",
     "root": "games/merge",
-    "status": "coming-soon",
+    "status": "playable",
     "accent": "honey"
   },
   {
     "id": "aquarium",
     "title": "王都水族馆",
-    "subtitle": "养鱼 · 繁育 · 造景",
+    "subtitle": "养鱼 · 喂食 · 泡泡币",
     "packageName": "aquarium",
     "root": "games/aquarium",
-    "status": "coming-soon",
+    "status": "playable",
     "accent": "sky"
+  },
+  {
+    "id": "farm",
+    "title": "王都农场",
+    "subtitle": "播种 · 收获 · 订单",
+    "packageName": "farm",
+    "root": "games/farm",
+    "status": "playable",
+    "accent": "leaf"
+  },
+  {
+    "id": "restaurant",
+    "title": "王都餐厅",
+    "subtitle": "组合 · 点菜 · 营业",
+    "packageName": "restaurant",
+    "root": "games/restaurant",
+    "status": "playable",
+    "accent": "peach"
+  },
+  {
+    "id": "ranch",
+    "title": "王都牧场",
+    "subtitle": "饲养 · 收蛋 · 挤奶",
+    "packageName": "ranch",
+    "root": "games/ranch",
+    "status": "playable",
+    "accent": "leaf"
   }
 ];

@@ -1,6 +1,6 @@
 # 王都花园（规划）
 
-状态：即将开放。
+状态：可玩原型。
 
 实现时按 `docs/game-design/garden.md`：
 

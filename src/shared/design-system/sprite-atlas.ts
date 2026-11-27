@@ -8,6 +8,14 @@ export type SpriteId =
   | 'tile-mint'
   | 'tile-sky'
   | 'tile-lilac'
+  | 'tile-carrot'
+  | 'tile-bread'
+  | 'tile-wheat'
+  | 'tile-egg'
+  | 'tile-milk'
+  | 'tile-meat'
+  | 'tile-cheese'
+  | 'tile-feed'
   | 'shadow'
   | 'p-star'
   | 'p-petal'
@@ -31,24 +39,46 @@ export interface SpriteFrame {
 
 const TILE = 128;
 const PARTICLE = 64;
-const ATLAS_W = 896;
+const ATLAS_W = 2048;
 const ATLAS_H = 256;
 
 interface TileStyle {
   fill: string;
   shade: string;
-  symbol: 'berry' | 'jar' | 'candy' | 'macaron' | 'flower';
-  pattern: 'dots' | 'stripes' | 'swirl' | 'ridge' | 'petals';
+  symbol:
+    | 'berry'
+    | 'jar'
+    | 'candy'
+    | 'macaron'
+    | 'flower'
+    | 'carrot'
+    | 'bread'
+    | 'wheat'
+    | 'egg'
+    | 'milk'
+    | 'meat'
+    | 'cheese'
+    | 'feed';
+  pattern: 'dots' | 'stripes' | 'swirl' | 'ridge' | 'petals' | 'rows' | 'crumbs' | 'grains';
 }
 
-// 顺序必须与 game 里的 tile 索引一致：莓果 / 蜂蜜 / 薄荷 / 马卡龙 / 花瓣糖。
-// 每种方块同时用颜色、轮廓和纹理区分，灰度下也能快速配对。
+// 顺序必须与 TILE_SKINS 的 sprites 索引一致：
+// 莓果 / 蜂蜜罐 / 薄荷糖 / 马卡龙 / 花朵 / 胡萝卜 / 面包 / 麦穗 / 鸡蛋 / 牛奶 / 肉排 / 奶酪 / 饲料。
+// 每种方块同时用轮廓、图案、颜色区分，灰度下也能快速配对。
 const TILE_STYLES: TileStyle[] = [
   { fill: COLORS.petal, shade: COLORS.petalDeep, symbol: 'berry', pattern: 'dots' },
   { fill: COLORS.honey, shade: COLORS.honeyDeep, symbol: 'jar', pattern: 'stripes' },
   { fill: COLORS.mint, shade: COLORS.mintDeep, symbol: 'candy', pattern: 'swirl' },
   { fill: COLORS.water, shade: COLORS.waterDeep, symbol: 'macaron', pattern: 'ridge' },
   { fill: COLORS.lilac, shade: COLORS.lilacDeep, symbol: 'flower', pattern: 'petals' },
+  { fill: COLORS.coral, shade: COLORS.petalDeep, symbol: 'carrot', pattern: 'rows' },
+  { fill: COLORS.pathDeep, shade: COLORS.honeyDeep, symbol: 'bread', pattern: 'crumbs' },
+  { fill: COLORS.gold, shade: COLORS.honeyDeep, symbol: 'wheat', pattern: 'grains' },
+  { fill: COLORS.cream, shade: COLORS.gold, symbol: 'egg', pattern: 'dots' },
+  { fill: COLORS.sky, shade: COLORS.waterDeep, symbol: 'milk', pattern: 'stripes' },
+  { fill: COLORS.peach, shade: COLORS.coral, symbol: 'meat', pattern: 'ridge' },
+  { fill: COLORS.honey, shade: COLORS.honeyDeep, symbol: 'cheese', pattern: 'crumbs' },
+  { fill: COLORS.leaf, shade: COLORS.grassDeep, symbol: 'feed', pattern: 'grains' },
 ];
 
 const PARTICLE_CELLS: SpriteId[] = [
@@ -87,7 +117,21 @@ export class SpriteAtlas {
   }
 
   private bakeTiles(ctx: CanvasRenderingContext2D): void {
-    const ids: SpriteId[] = ['tile-berry', 'tile-honey', 'tile-mint', 'tile-sky', 'tile-lilac'];
+    const ids: SpriteId[] = [
+      'tile-berry',
+      'tile-honey',
+      'tile-mint',
+      'tile-sky',
+      'tile-lilac',
+      'tile-carrot',
+      'tile-bread',
+      'tile-wheat',
+      'tile-egg',
+      'tile-milk',
+      'tile-meat',
+      'tile-cheese',
+      'tile-feed',
+    ];
 
     TILE_STYLES.forEach((style, index) => {
       const x = index * TILE;
@@ -107,22 +151,24 @@ export class SpriteAtlas {
         style.shade,
         RADIUS.xl,
       );
-      // 顶面
-      const gradient = ctx.createLinearGradient(0, face.y, 0, face.y + face.h);
-      gradient.addColorStop(0, COLORS.paper);
-      gradient.addColorStop(0.35, style.fill);
-      gradient.addColorStop(1, style.fill);
+      strokeRoundRect(
+        ctx,
+        { x: face.x, y: face.y + depth, w: face.w, h: face.h },
+        COLORS.ink,
+        3,
+        RADIUS.xl,
+      );
+      // 顶面：平涂纸片，不拉长渐变
       ctx.save();
       roundRectPath(ctx, face.x, face.y, face.w, face.h, RADIUS.xl);
-      ctx.fillStyle = gradient;
-      ctx.globalAlpha = 1;
+      ctx.fillStyle = style.fill;
       ctx.fill();
       ctx.restore();
-      strokeRoundRect(ctx, face, 'rgba(58,46,42,0.30)', 3, RADIUS.xl);
+      strokeRoundRect(ctx, face, COLORS.ink, 3.5, RADIUS.xl);
 
       // 底部内阴影，让方块有接触感
       ctx.save();
-      ctx.globalAlpha = 0.14;
+      ctx.globalAlpha = 0.16;
       ctx.fillStyle = style.shade;
       ctx.beginPath();
       ctx.ellipse(
@@ -137,14 +183,21 @@ export class SpriteAtlas {
       ctx.fill();
       ctx.restore();
 
-      // 顶部高光
+      // 顶部纸片高光 + 亮边
       ctx.save();
-      ctx.globalAlpha = 0.5;
+      ctx.globalAlpha = 0.42;
       fillRoundRect(
         ctx,
-        { x: face.x + 14, y: face.y + 10, w: face.w - 28, h: 18 },
+        { x: face.x + 14, y: face.y + 10, w: face.w - 28, h: 20 },
         COLORS.paper,
-        9,
+        10,
+      );
+      ctx.globalAlpha = 0.22;
+      fillRoundRect(
+        ctx,
+        { x: face.x + 10, y: face.y + face.h - 26, w: face.w - 20, h: 12 },
+        style.shade,
+        6,
       );
       ctx.restore();
 
@@ -168,6 +221,30 @@ export class SpriteAtlas {
           break;
         case 'flower':
           this.drawFlower(ctx, cx, cy, size);
+          break;
+        case 'carrot':
+          this.drawCarrot(ctx, cx, cy, size);
+          break;
+        case 'bread':
+          this.drawBread(ctx, cx, cy, size);
+          break;
+        case 'wheat':
+          this.drawWheat(ctx, cx, cy, size);
+          break;
+        case 'egg':
+          this.drawEgg(ctx, cx, cy, size);
+          break;
+        case 'milk':
+          this.drawMilk(ctx, cx, cy, size);
+          break;
+        case 'meat':
+          this.drawMeat(ctx, cx, cy, size);
+          break;
+        case 'cheese':
+          this.drawCheese(ctx, cx, cy, size);
+          break;
+        case 'feed':
+          this.drawFeed(ctx, cx, cy, size);
           break;
       }
 
@@ -246,6 +323,45 @@ export class SpriteAtlas {
             9,
             style.shade,
           );
+        }
+        break;
+      case 'rows':
+        for (let i = 0; i < 5; i += 1) {
+          const y = face.y + 20 + i * 20;
+          ctx.beginPath();
+          ctx.moveTo(face.x + 14 + (i % 2) * 10, y);
+          ctx.lineTo(face.x + 44 + (i % 2) * 10, y);
+          ctx.stroke();
+          ctx.beginPath();
+          ctx.moveTo(face.x + 64 - (i % 2) * 6, y);
+          ctx.lineTo(face.x + 96 - (i % 2) * 6, y);
+          ctx.stroke();
+        }
+        break;
+      case 'crumbs':
+        for (let i = 0; i < 10; i += 1) {
+          ctx.beginPath();
+          ctx.arc(
+            face.x + 16 + ((i * 37) % (face.w - 32)),
+            face.y + 16 + ((i * 53) % (face.h - 32)),
+            2.2 + (i % 3),
+            0,
+            Math.PI * 2,
+          );
+          ctx.fill();
+        }
+        break;
+      case 'grains':
+        for (let row = 0; row < 3; row += 1) {
+          for (let col = 0; col < 3; col += 1) {
+            ctx.save();
+            ctx.translate(face.x + 24 + col * 30, face.y + 20 + row * 26);
+            ctx.rotate(0.5);
+            ctx.beginPath();
+            ctx.ellipse(0, 0, 4, 8, 0, 0, Math.PI * 2);
+            ctx.fill();
+            ctx.restore();
+          }
         }
         break;
     }
@@ -436,6 +552,273 @@ export class SpriteAtlas {
     ctx.beginPath();
     ctx.arc(cx - size * 0.08, cy - size * 0.08, size * 0.09, 0, Math.PI * 2);
     ctx.fill();
+    ctx.restore();
+  }
+
+  /** 胡萝卜：三角形身体 + 叶子，和莓果的圆形轮廓彻底分开。 */
+  private drawCarrot(ctx: CanvasRenderingContext2D, cx: number, cy: number, size: number): void {
+    ctx.save();
+    ctx.lineCap = 'round';
+    ctx.strokeStyle = COLORS.leaf;
+    ctx.lineWidth = size * 0.24;
+    for (const dx of [-0.4, 0, 0.4]) {
+      ctx.beginPath();
+      ctx.moveTo(cx + dx * size * 0.4, cy - size * 0.3);
+      ctx.quadraticCurveTo(cx + dx * size * 1.1, cy - size * 0.95, cx + dx * size * 1.3, cy - size * 1.25);
+      ctx.stroke();
+    }
+
+    ctx.beginPath();
+    ctx.moveTo(cx - size * 0.7, cy - size * 0.36);
+    ctx.quadraticCurveTo(cx, cy - size * 0.66, cx + size * 0.7, cy - size * 0.36);
+    ctx.lineTo(cx + size * 0.08, cy + size * 1.0);
+    ctx.closePath();
+    ctx.fillStyle = COLORS.coral;
+    ctx.fill();
+    ctx.strokeStyle = COLORS.ink;
+    ctx.lineWidth = 3;
+    ctx.stroke();
+
+    ctx.strokeStyle = 'rgba(185,79,73,0.55)';
+    ctx.lineWidth = 2.4;
+    for (let i = 0; i < 3; i += 1) {
+      const y = cy - size * 0.05 + i * size * 0.34;
+      ctx.beginPath();
+      ctx.moveTo(cx - size * (0.42 - i * 0.1), y);
+      ctx.lineTo(cx + size * (0.3 - i * 0.08), y - size * 0.06);
+      ctx.stroke();
+    }
+
+    ctx.save();
+    ctx.globalAlpha = 0.5;
+    ctx.fillStyle = COLORS.paper;
+    ctx.beginPath();
+    ctx.ellipse(cx - size * 0.3, cy - size * 0.18, size * 0.12, size * 0.3, -0.25, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.restore();
+    ctx.restore();
+  }
+
+  /** 面包：横椭圆 + 三道割口，和方形的蜂蜜罐区分。 */
+  private drawBread(ctx: CanvasRenderingContext2D, cx: number, cy: number, size: number): void {
+    ctx.save();
+    ctx.beginPath();
+    ctx.ellipse(cx, cy + size * 0.06, size * 1.1, size * 0.8, 0, 0, Math.PI * 2);
+    ctx.fillStyle = COLORS.pathDeep;
+    ctx.fill();
+    ctx.strokeStyle = COLORS.ink;
+    ctx.lineWidth = 3;
+    ctx.stroke();
+
+    ctx.beginPath();
+    ctx.ellipse(cx, cy - size * 0.16, size * 0.92, size * 0.52, 0, Math.PI * 1.02, Math.PI * 1.98);
+    ctx.strokeStyle = COLORS.honeyDeep;
+    ctx.lineWidth = size * 0.26;
+    ctx.lineCap = 'round';
+    ctx.stroke();
+
+    ctx.strokeStyle = COLORS.ink;
+    ctx.lineWidth = 3;
+    for (const dx of [-0.5, 0, 0.5]) {
+      ctx.beginPath();
+      ctx.moveTo(cx + dx * size - size * 0.14, cy - size * 0.28);
+      ctx.lineTo(cx + dx * size + size * 0.14, cy + size * 0.22);
+      ctx.stroke();
+    }
+
+    ctx.save();
+    ctx.globalAlpha = 0.55;
+    ctx.fillStyle = COLORS.paper;
+    ctx.beginPath();
+    ctx.ellipse(cx - size * 0.52, cy - size * 0.2, size * 0.2, size * 0.1, -0.25, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.restore();
+    ctx.restore();
+  }
+
+  /** 麦穗：三根麦秆 + 成对麦粒，和方罐、三角胡萝卜、圆面包拉开轮廓。 */
+  private drawWheat(ctx: CanvasRenderingContext2D, cx: number, cy: number, size: number): void {
+    ctx.save();
+    ctx.lineCap = 'round';
+    ctx.strokeStyle = COLORS.honeyDeep;
+    ctx.lineWidth = size * 0.13;
+    for (const dx of [-0.55, 0, 0.55]) {
+      const topX = cx + dx * size * 1.25;
+      const topY = cy - size * 0.95;
+      ctx.beginPath();
+      ctx.moveTo(cx + dx * size * 0.28, cy + size * 1.05);
+      ctx.quadraticCurveTo(cx + dx * size * 0.6, cy + size * 0.1, topX, topY);
+      ctx.stroke();
+
+      for (let i = 0; i < 3; i += 1) {
+        const t = i / 2;
+        const gx = cx + dx * size * (0.55 + t * 0.6);
+        const gy = cy + size * (0.32 - t * 0.95);
+        for (const side of [-1, 1]) {
+          ctx.save();
+          ctx.translate(gx + side * size * 0.16, gy);
+          ctx.rotate(side * 0.6);
+          ctx.beginPath();
+          ctx.ellipse(0, 0, size * 0.13, size * 0.27, 0, 0, Math.PI * 2);
+          ctx.fillStyle = COLORS.honey;
+          ctx.fill();
+          ctx.strokeStyle = COLORS.honeyDeep;
+          ctx.lineWidth = 2;
+          ctx.stroke();
+          ctx.restore();
+        }
+      }
+    }
+
+    ctx.beginPath();
+    ctx.ellipse(cx + size * 0.55, cy + size * 0.78, size * 0.42, size * 0.16, -0.5, 0, Math.PI * 2);
+    ctx.fillStyle = COLORS.leaf;
+    ctx.fill();
+    ctx.restore();
+  }
+
+  private drawEgg(ctx: CanvasRenderingContext2D, cx: number, cy: number, size: number): void {
+    ctx.save();
+    ctx.beginPath();
+    ctx.ellipse(cx, cy, size * 0.86, size * 1.12, 0, 0, Math.PI * 2);
+    ctx.fillStyle = COLORS.cream;
+    ctx.fill();
+    ctx.strokeStyle = COLORS.ink;
+    ctx.lineWidth = 3;
+    ctx.stroke();
+    ctx.beginPath();
+    ctx.arc(cx, cy + size * 0.05, size * 0.36, 0, Math.PI * 2);
+    ctx.fillStyle = COLORS.gold;
+    ctx.fill();
+    ctx.strokeStyle = COLORS.honeyDeep;
+    ctx.lineWidth = 2;
+    ctx.stroke();
+    ctx.save();
+    ctx.globalAlpha = 0.6;
+    ctx.fillStyle = COLORS.paper;
+    ctx.beginPath();
+    ctx.ellipse(cx - size * 0.32, cy - size * 0.52, size * 0.16, size * 0.28, -0.3, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.restore();
+    ctx.restore();
+  }
+
+  private drawMilk(ctx: CanvasRenderingContext2D, cx: number, cy: number, size: number): void {
+    ctx.save();
+    fillRoundRect(
+      ctx,
+      { x: cx - size * 0.62, y: cy - size * 0.55, w: size * 1.24, h: size * 1.7 },
+      COLORS.paper,
+      size * 0.22,
+    );
+    strokeRoundRect(
+      ctx,
+      { x: cx - size * 0.62, y: cy - size * 0.55, w: size * 1.24, h: size * 1.7 },
+      COLORS.ink,
+      3,
+      size * 0.22,
+    );
+    fillRoundRect(
+      ctx,
+      { x: cx - size * 0.34, y: cy - size * 0.78, w: size * 0.68, h: size * 0.3 },
+      COLORS.waterDeep,
+      size * 0.08,
+    );
+    fillRoundRect(
+      ctx,
+      { x: cx - size * 0.44, y: cy - size * 0.18, w: size * 0.88, h: size * 0.72 },
+      COLORS.sky,
+      size * 0.12,
+    );
+    ctx.beginPath();
+    ctx.moveTo(cx - size * 0.2, cy + size * 0.18);
+    ctx.quadraticCurveTo(cx, cy - size * 0.1, cx + size * 0.2, cy + size * 0.18);
+    ctx.strokeStyle = COLORS.paper;
+    ctx.lineWidth = size * 0.1;
+    ctx.lineCap = 'round';
+    ctx.stroke();
+    ctx.restore();
+  }
+
+  private drawMeat(ctx: CanvasRenderingContext2D, cx: number, cy: number, size: number): void {
+    ctx.save();
+    ctx.beginPath();
+    ctx.ellipse(cx - size * 0.12, cy + size * 0.02, size * 0.92, size * 0.7, -0.2, 0, Math.PI * 2);
+    ctx.fillStyle = COLORS.coral;
+    ctx.fill();
+    ctx.strokeStyle = COLORS.ink;
+    ctx.lineWidth = 3;
+    ctx.stroke();
+    ctx.save();
+    ctx.globalAlpha = 0.5;
+    ctx.beginPath();
+    ctx.ellipse(cx - size * 0.3, cy - size * 0.12, size * 0.34, size * 0.2, -0.3, 0, Math.PI * 2);
+    ctx.fillStyle = COLORS.paper;
+    ctx.fill();
+    ctx.restore();
+    ctx.beginPath();
+    ctx.moveTo(cx + size * 0.55, cy + size * 0.4);
+    ctx.lineTo(cx + size * 1.12, cy + size * 0.98);
+    ctx.strokeStyle = COLORS.paper;
+    ctx.lineWidth = size * 0.34;
+    ctx.lineCap = 'round';
+    ctx.stroke();
+    ctx.beginPath();
+    ctx.arc(cx + size * 1.16, cy + size * 1.02, size * 0.24, 0, Math.PI * 2);
+    ctx.fillStyle = COLORS.paper;
+    ctx.fill();
+    ctx.strokeStyle = COLORS.ink;
+    ctx.lineWidth = 2.4;
+    ctx.stroke();
+    ctx.restore();
+  }
+
+  private drawCheese(ctx: CanvasRenderingContext2D, cx: number, cy: number, size: number): void {
+    ctx.save();
+    ctx.beginPath();
+    ctx.moveTo(cx - size * 1.1, cy + size * 0.55);
+    ctx.lineTo(cx + size * 0.95, cy + size * 0.55);
+    ctx.lineTo(cx + size * 0.6, cy - size * 0.5);
+    ctx.lineTo(cx - size * 0.4, cy - size * 0.8);
+    ctx.closePath();
+    ctx.fillStyle = COLORS.gold;
+    ctx.fill();
+    ctx.strokeStyle = COLORS.ink;
+    ctx.lineWidth = 3;
+    ctx.stroke();
+    for (const [dx, dy, r] of [
+      [-0.5, 0.2, 0.14],
+      [0.2, 0.32, 0.1],
+      [0.5, 0.05, 0.08],
+    ] as const) {
+      ctx.beginPath();
+      ctx.arc(cx + dx * size, cy + dy * size, r * size, 0, Math.PI * 2);
+      ctx.fillStyle = COLORS.honeyDeep;
+      ctx.fill();
+    }
+    ctx.restore();
+  }
+
+  private drawFeed(ctx: CanvasRenderingContext2D, cx: number, cy: number, size: number): void {
+    ctx.save();
+    ctx.beginPath();
+    ctx.moveTo(cx - size * 0.7, cy - size * 0.45);
+    ctx.quadraticCurveTo(cx, cy - size * 0.8, cx + size * 0.7, cy - size * 0.45);
+    ctx.lineTo(cx + size * 0.55, cy + size * 0.9);
+    ctx.quadraticCurveTo(cx, cy + size * 1.08, cx - size * 0.55, cy + size * 0.9);
+    ctx.closePath();
+    ctx.fillStyle = COLORS.honey;
+    ctx.fill();
+    ctx.strokeStyle = COLORS.ink;
+    ctx.lineWidth = 3;
+    ctx.stroke();
+    fillRoundRect(
+      ctx,
+      { x: cx - size * 0.36, y: cy - size * 0.14, w: size * 0.72, h: size * 0.44 },
+      COLORS.paper,
+      size * 0.08,
+    );
+    drawStar(ctx, cx, cy + size * 0.08, size * 0.16, size * 0.07, COLORS.leaf);
     ctx.restore();
   }
 

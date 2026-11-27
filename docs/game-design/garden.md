@@ -1,18 +1,25 @@
 # 王都花园
 
+> 状态：可玩原型（`src/games/garden`，分包 `garden`）。
+> 原型规则：6 块花圃；9 种花（雏菊 45s → 荷花 220s）；种子花王都币；点生长中的花浇水一次，缩短 35% 时间；收获后花进**王都仓库·花卉**，可「一键收获 / 浇全部 / 卖花 / 交花单」。花单 6 个循环，给王都币+繁荣度。存档 `save:garden`（v2），离线按真实时间生长。排行榜 id `garden`。
+>
+> 本文第 3–8 节是长期设计（遗传/繁育/布置/双人），**当前原型只实现了「种 → 浇 → 收 → 花单 → 仓库」**，未实现的部分在每节开头标了「未实现」。
+
 ## 1. 核心
 
-种花 → 浇水/施肥 → 开花 → 订单/图鉴 → 繁育新品种 → 布置花园。
+种花 → 浇水 → 开花 → 花单/收集 → （规划）繁育新品种 → （规划）布置花园。
+
+> 与 [farm.md](./farm.md) 的分工：花园只做花卉，不产出食材；食材由王都农场负责。两边产出都进王都仓库，分类不同。
 
 ## 2. 循环
 
 ```
-短：浇水/收获（30 秒）
-中：订单/图鉴/繁育（1–7 天）
-长：花园布置/季节花/收集（7–30 天）
+短：播种/浇水/收获（20 秒–3 分钟）
+中：花单/收集（1–7 天）
+长：（规划）花园布置/季节花
 ```
 
-## 3. 基因
+## 3. 基因（未实现，长期方向）
 
 ```ts
 interface FlowerGenome {
@@ -54,21 +61,20 @@ interface FlowerGenome {
 - 缺水会暂停，不死亡；
 - 不惩罚玩家。
 
-## 5. 订单
+## 5. 订单（已实现：6 个循环）
 
-- 访客要 1–3 种花；
-- 奖励王都币/种子；
-- 每日 3 个；
-- 可刷新 1 次（免费）。
+- 6 个花单循环，例如「两色花束」「一束郁金香」；
+- 需求显示 `持有/需要`，花直接取自王都仓库·花卉；
+- 奖励王都币 + 繁荣度；
+- 不做每日刷新、不做可刷新次数（避免刷单）。
 
-## 6. 图鉴
+## 6. 图鉴（部分实现）
 
-- 每个品种/颜色/形状组合；
-- 首次收集给繁荣度；
-- 稀有度展示；
+- 收集册按「花卉」分页展示 9 种花；
+- 首次收获给繁荣度；
 - 不显示未发现的具体配方（只给提示）。
 
-## 7. 花园布置
+## 7. 花园布置（未实现）
 
 - 网格 6×6；
 - 放置花盆/装饰/小径；
@@ -76,7 +82,7 @@ interface FlowerGenome {
 - 保存布局；
 - 双人共享。
 
-## 8. 双人
+## 8. 双人（未实现）
 
 - 一人浇水、一人修剪；
 - 同屏分区；
@@ -97,19 +103,24 @@ interface FlowerGenome {
 - 开花特效：花瓣/星光；
 - 统一 design-system。
 
-## 11. 存档
+## 11. 存档（v2）
 
 ```ts
 interface GardenSave {
-  schemaVersion: number;
-  plants: FlowerPlant[];
+  schemaVersion: 2;
+  plants: Array<{ flowerId: string; plantedAt: number; watered: boolean } | null>;
+  plotsUnlocked: number;
+  orderIndex: number;
   discovered: string[];
-  seeds: Record<string, number>;
-  orders: MergeOrder[];
-  layout: { itemId: string; x: number; y: number }[];
-  stats: { planted: number; bloomed: number; bred: number };
+  totalHarvests: number;
+  totalCoins: number;
 }
 ```
+
+- key：`save:garden`；
+- **v2 起花园不再自带库存**：花直接进 `profile.pantry`（王都仓库·花卉）；
+- v1 存档的 `inventory` 由 `legacyInventory()` 读出，进场时一次性并进仓库并改写存档（只搬一次）；
+- 排行榜分数 `gardenScore = 收获朵数 × 10 + 累计收入`。
 
 ## 12. 事件
 

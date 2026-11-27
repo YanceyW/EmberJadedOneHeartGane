@@ -1,4 +1,6 @@
 import { ProfileService } from '../core/profile';
+import { findTileSkin } from '../shared/content/tile-skins';
+import { findStyle, findWeather } from './themes';
 
 export type BuildTrackId = 'fountain' | 'lights' | 'garden';
 
@@ -113,7 +115,14 @@ export function canAfford(coins: number, price: number): boolean {
   return price <= 0 || coins >= price;
 }
 
-export type ShopResult = 'bought' | 'owned' | 'equipped' | 'poor' | 'maxed' | 'missing';
+export type ShopResult =
+  | 'bought'
+  | 'owned'
+  | 'equipped'
+  | 'poor'
+  | 'maxed'
+  | 'locked'
+  | 'missing';
 
 export function buyOrEquipOutfit(profile: ProfileService, id: string): ShopResult {
   const item = findOutfit(id);
@@ -146,10 +155,57 @@ export function buyOrEquipIcon(profile: ProfileService, id: string): ShopResult 
 export function upgradeBuildTrack(profile: ProfileService, id: BuildTrackId): ShopResult {
   const track = BUILD_TRACKS.find((item) => item.id === id);
   if (!track) return 'missing';
-  const level = profile.get().cosmetics.build[id];
+  const level = profile.get().cosmetics.buildMax[id];
   const cost = nextBuildCost(track, level);
   if (cost === null) return 'maxed';
   if (!profile.spendCoins(cost)) return 'poor';
   profile.upgradeBuild(id);
+  return 'bought';
+}
+
+export function selectBuildTrackLevel(
+  profile: ProfileService,
+  id: BuildTrackId,
+  level: number,
+): ShopResult {
+  const track = BUILD_TRACKS.find((item) => item.id === id);
+  if (!track) return 'missing';
+  if (level < 0 || level > profile.get().cosmetics.buildMax[id]) return 'locked';
+  profile.selectBuildLevel(id, level);
+  return 'equipped';
+}
+
+export function selectWeather(profile: ProfileService, id: string): ShopResult {
+  if (!findWeather(id)) return 'missing';
+  profile.setWeather(id);
+  return 'equipped';
+}
+
+export function buyOrEquipStyle(profile: ProfileService, id: string): ShopResult {
+  const item = findStyle(id);
+  if (!item) return 'missing';
+  const state = profile.get().cosmetics;
+  if (state.ownedStyles.includes(id)) {
+    profile.equipStyle(id);
+    return 'equipped';
+  }
+  if (item.price > 0 && !profile.spendCoins(item.price)) return 'poor';
+  profile.unlockStyle(id);
+  profile.equipStyle(id);
+  return 'bought';
+}
+
+export function buyOrEquipTile(profile: ProfileService, id: string): ShopResult {
+  const skin = findTileSkin(id);
+  if (!skin) return 'missing';
+  const state = profile.get().cosmetics;
+  if (state.ownedTiles.includes(id)) {
+    profile.equipTile(id);
+    return 'equipped';
+  }
+  if (skin.unlockHint) return 'locked';
+  if (skin.price > 0 && !profile.spendCoins(skin.price)) return 'poor';
+  profile.unlockTile(id);
+  profile.equipTile(id);
   return 'bought';
 }

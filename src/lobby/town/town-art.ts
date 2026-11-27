@@ -4,9 +4,9 @@ import { platform } from '../../shared/platform/wx';
 import { COLORS, TOWN_COLORS } from '../../shared/design-system/tokens';
 import { drawPetal } from '../../shared/design-system/draw';
 import { applyGrainToOpaque, inkLine, softShadow } from '../../shared/design-system/paint';
-import { TownBuildingLayout, TownLayout } from './town-layout';
+import { TownBuildingLayout, TownFacilityLayout, TownLayout } from './town-layout';
 import { townPalette, TownPalette, TownPhase } from './town-palette';
-import { drawBuildingBody } from './town-buildings';
+import { drawBuildingBody, drawFacilityBody } from './town-buildings';
 import { TownCamera, worldToScreen } from './town-camera';
 
 interface CanvasEntry {
@@ -21,15 +21,24 @@ const BUILD_PAD = 34;
 export class TownArt {
   private tier: QualityTier = 'mid';
   private texture = true;
+  private style = 'classic';
   private readonly sky = new Map<TownPhase, CanvasEntry>();
   private readonly ground = new Map<TownPhase, CanvasEntry>();
   private readonly buildings = new Map<string, CanvasEntry>();
+  private readonly facilities = new Map<string, CanvasEntry>();
 
-  ensure(layout: TownLayout, phase: TownPhase, tier: QualityTier, texture: boolean): void {
-    if (this.tier !== tier || this.texture !== texture) {
+  ensure(
+    layout: TownLayout,
+    phase: TownPhase,
+    tier: QualityTier,
+    texture: boolean,
+    style = 'classic',
+  ): void {
+    if (this.tier !== tier || this.texture !== texture || this.style !== style) {
       this.invalidate();
       this.tier = tier;
       this.texture = texture;
+      this.style = style;
     }
     if (!this.sky.has(phase)) {
       this.sky.set(phase, this.bakeSky(layout, phase));
@@ -49,12 +58,19 @@ export class TownArt {
         this.buildings.set(key, this.bakeBuilding(building, phase));
       }
     }
+    for (const facility of layout.facilities) {
+      const key = `${phase}:${facility.id}`;
+      if (!this.facilities.has(key)) {
+        this.facilities.set(key, this.bakeFacility(facility, phase));
+      }
+    }
   }
 
   invalidate(): void {
     this.sky.clear();
     this.ground.clear();
     this.buildings.clear();
+    this.facilities.clear();
   }
 
   private trim<T>(map: Map<T, CanvasEntry>): void {
@@ -76,7 +92,7 @@ export class TownArt {
     const height = Math.ceil(layout.groundTop + 300);
     const { canvas, ctx } = this.canvas(width, height);
     if (!ctx) return { canvas, width, height };
-    const palette = townPalette(phase);
+    const palette = townPalette(phase, this.style);
     const gradient = ctx.createLinearGradient(0, 0, 0, height);
     gradient.addColorStop(0, palette.skyTop);
     gradient.addColorStop(0.42, palette.skyTop);
@@ -227,7 +243,7 @@ export class TownArt {
     const height = Math.ceil(layout.height - layout.groundTop + 280);
     const { canvas, ctx } = this.canvas(width, height);
     if (!ctx) return { canvas, width, height };
-    const palette = townPalette(phase);
+    const palette = townPalette(phase, this.style);
     const cx = width / 2;
     const fountainY = layout.fountain.y - layout.groundTop;
     const baseY = layout.height - layout.groundTop;
@@ -362,7 +378,7 @@ export class TownArt {
     ctx.stroke();
 
     // 通往每座建筑的支路
-    for (const building of layout.buildings) {
+    for (const building of layout.structures) {
       const bx = cx + building.base.x;
       const by = building.base.y - layout.groundTop;
       ctx.beginPath();
@@ -460,12 +476,50 @@ export class TownArt {
     const { canvas, ctx } = this.canvas(width, height);
     if (!ctx) return { canvas, width, height };
     ctx.translate(BUILD_PAD + localW / 2, BUILD_PAD + localH);
-    drawBuildingBody(ctx, building, townPalette(phase), 0);
+    drawBuildingBody(ctx, building, townPalette(phase, this.style), 0);
     if (this.texture) {
       ctx.setTransform(1, 0, 0, 1, 0, 0);
       applyGrainToOpaque(ctx, width, height, 0.5);
     }
     return { canvas, width, height };
+  }
+
+  private bakeFacility(facility: TownFacilityLayout, phase: TownPhase): CanvasEntry {
+    const localW = Math.ceil(facility.art.w / Math.max(0.001, facility.scale));
+    const localH = Math.ceil(facility.art.h / Math.max(0.001, facility.scale));
+    const width = localW + BUILD_PAD * 2;
+    const height = localH + BUILD_PAD * 2;
+    const { canvas, ctx } = this.canvas(width, height);
+    if (!ctx) return { canvas, width, height };
+    ctx.translate(BUILD_PAD + localW / 2, BUILD_PAD + localH);
+    drawFacilityBody(ctx, facility, townPalette(phase, this.style));
+    if (this.texture) {
+      ctx.setTransform(1, 0, 0, 1, 0, 0);
+      applyGrainToOpaque(ctx, width, height, 0.5);
+    }
+    return { canvas, width, height };
+  }
+
+  drawFacility(
+    ctx: CanvasRenderingContext2D,
+    layout: TownLayout,
+    camera: TownCamera,
+    facility: TownFacilityLayout,
+    phase: TownPhase,
+    alpha = 1,
+  ): void {
+    const entry = this.facilities.get(`${phase}:${facility.id}`);
+    if (!entry) return;
+    const base = worldToScreen(camera, facility.base.x, facility.base.y, layout.width, layout.focusY);
+    const scale = facility.scale * camera.zoom;
+    const localW = Math.ceil(facility.art.w / Math.max(0.001, facility.scale));
+    const localH = Math.ceil(facility.art.h / Math.max(0.001, facility.scale));
+    const dx = base.x - (BUILD_PAD + localW / 2) * scale;
+    const dy = base.y - (BUILD_PAD + localH) * scale;
+    ctx.save();
+    ctx.globalAlpha = alpha;
+    ctx.drawImage(entry.canvas, dx, dy, entry.width * scale, entry.height * scale);
+    ctx.restore();
   }
 
   drawSky(

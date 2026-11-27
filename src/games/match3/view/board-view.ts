@@ -6,14 +6,8 @@ import { SpriteAtlas, SpriteId } from '../../../shared/design-system/sprite-atla
 import { COLORS, FONT } from '../../../shared/design-system/tokens';
 import { drawText, fillRoundRect, Rect } from '../../../shared/design-system/draw';
 import { Cell, ResolveReport, ResolveStep } from '../systems/board';
+import { TILE_THEMES } from '../systems/tiles';
 
-const TILE_SPRITES: SpriteId[] = [
-  'tile-berry',
-  'tile-honey',
-  'tile-mint',
-  'tile-sky',
-  'tile-lilac',
-];
 const INTRO_DURATION = DURATION.slow;
 const INTRO_ROW_DELAY = 0.015;
 const PRESS_DRAG_LIMIT = 10;
@@ -81,6 +75,7 @@ export class BoardView {
   private introElapsed = 0;
   private reducedMotion = false;
   private rect: Rect = { x: 0, y: 0, w: 0, h: 0 };
+  private tileSprites: readonly SpriteId[] = TILE_THEMES.sweets.sprites;
 
   constructor(
     private readonly tweens: TweenManager,
@@ -94,6 +89,11 @@ export class BoardView {
 
   setReducedMotion(value: boolean): void {
     this.reducedMotion = value;
+  }
+
+  /** 换关时切主题：值 0–4 不变，只映射到不同场馆的方块。 */
+  setTileSprites(sprites: readonly SpriteId[]): void {
+    if (sprites.length > 0) this.tileSprites = sprites;
   }
 
   private get cellCount(): number {
@@ -718,7 +718,7 @@ export class BoardView {
     flash: number,
     pressed: boolean,
   ): void {
-    const sprite = TILE_SPRITES[value % TILE_SPRITES.length] ?? TILE_SPRITES[0];
+    const sprite = this.tileSprites[value % this.tileSprites.length] ?? this.tileSprites[0];
     const frame = this.atlas.frame(sprite);
     const pad = 3;
     const w = cellW * scaleX - pad * 2;

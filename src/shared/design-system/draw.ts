@@ -284,6 +284,9 @@ export function drawFish(
   ctx.ellipse(cx, cy, size, size * 0.62, 0, 0, Math.PI * 2);
   ctx.fillStyle = fill;
   ctx.fill();
+  ctx.strokeStyle = COLORS.ink;
+  ctx.lineWidth = 2.4;
+  ctx.stroke();
 
   ctx.beginPath();
   ctx.moveTo(cx - size * 0.95, cy);
@@ -292,6 +295,9 @@ export function drawFish(
   ctx.closePath();
   ctx.fillStyle = fill;
   ctx.fill();
+  ctx.strokeStyle = COLORS.ink;
+  ctx.lineWidth = 2.4;
+  ctx.stroke();
 
   ctx.beginPath();
   ctx.arc(cx + size * 0.5, cy - size * 0.14, size * 0.13, 0, Math.PI * 2);

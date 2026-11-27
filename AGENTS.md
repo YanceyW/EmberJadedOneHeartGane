@@ -8,11 +8,13 @@
 ## 1. 阅读顺序
 
 1. `README.md` — 产品定位、阵容、硬约束、路线图
-2. `docs/architecture.md` — 分层、模块、启动流程、依赖方向
-3. `docs/game-contract.md` — 游戏必须实现的契约
-4. `docs/design-system.md` — 视觉/动效/音频 token
-5. 与当前任务相关的文档（资产/数据/云/合规/测试/性能）
-6. `docs/decisions/` — 已做出的架构决策，不要重复讨论
+2. `docs/visual-style.md` — 统一画风、图标、棋盘、天气/节日的画法
+3. `docs/architecture.md` — 分层、模块、启动流程、依赖方向
+4. `docs/game-contract.md` — 游戏必须实现的契约
+5. `docs/design-system.md` — 视觉/动效/音频 token
+6. `docs/game-design/economy-loop.md` — 王都币、农场、花园、餐厅、水族馆的循环
+7. 与当前任务相关的文档（资产/数据/云/合规/测试/性能）
+8. `docs/decisions/` — 已做出的架构决策，不要重复讨论
 
 ---
 
@@ -65,8 +67,9 @@
 src/app/             App 组合根（唯一可以同时 import core/lobby/games）
 src/core/            运行时（scene/render/input/audio/assets/storage/cloud/ui/...）
 src/shared/          design-system / asset-library / game-kit / content / platform / test-kit
-src/lobby/           大厅与 Meta
+src/lobby/           大厅与 Meta（含 themes/weather）
 src/games/<id>/      每款游戏（只放独有逻辑/数据/素材）
+src/games/farm/      农场：食材生产，供给加工屋
 src/games/_template/ 新游戏模板
 cloudfunctions/      云函数
 tools/               构建/生成/校验脚本
@@ -82,10 +85,10 @@ tests/               跨模块测试
 2. 在 `src/games/xxx/game.ts` 导出 `GameDefinition`。
 3. 实现 `create(ctx)`，只使用 `GameContext`。
 4. 定义 `saveSchema` + migration。
-5. 加 `docs/game-design/xxx.md`。
+5. 加 `docs/game-design/xxx.md`，并对照 `docs/visual-style.md` 与 `docs/game-design/economy-loop.md`。
 6. 加 headless 测试 + 固定 seed 模拟。
-7. 注册到 `games.manifest.ts`。
-8. 通过 `typecheck/lint/test/build/size`。
+7. 注册到 `tools/games.manifest.json`，playable 才会进 `game.json` 分包。
+8. 通过 `typecheck/lint/test/build/size/smoke`。
 
 禁止：
 

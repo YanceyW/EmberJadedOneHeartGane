@@ -6,6 +6,7 @@ import {
 } from '../shared/design-system/paper-ui';
 import { inkLine, inkRoundRect } from '../shared/design-system/paint';
 import { COLORS } from '../shared/design-system/tokens';
+import { compactNumber } from '../shared/format';
 import { TownLayout } from './town/town-layout';
 import { TownPhase } from './town/town-palette';
 
@@ -109,7 +110,7 @@ export function drawHeader(ctx: CanvasRenderingContext2D, state: ChromeState): v
     size: 12,
     color: COLORS.inkSoft,
   });
-  drawText(ctx, `${state.coins}`, wallet.x + 54, wallet.y + 41, {
+  drawText(ctx, compactNumber(state.coins), wallet.x + 54, wallet.y + 41, {
     size: 23,
     weight: '700',
     color: COLORS.ink,

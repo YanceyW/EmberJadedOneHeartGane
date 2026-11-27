@@ -10,9 +10,9 @@ import {
   strokeInk,
   tracePath,
 } from '../../shared/design-system/paint';
-import { COLORS } from '../../shared/design-system/tokens';
+import { COLORS, TOWN_COLORS } from '../../shared/design-system/tokens';
 import { drawGameIcon } from '../game-icons';
-import { TownBuildingLayout } from './town-layout';
+import { TownBuildingLayout, TownFacilityLayout } from './town-layout';
 import { TownPalette } from './town-palette';
 
 export interface BuildingAnchors {
@@ -60,6 +60,17 @@ export const BUILDING_ANCHORS: Record<string, BuildingAnchors> = {
       { x: 54, y: -38 },
     ],
   },
+  farm: {
+    signY: -278,
+    roofY: -236,
+    smoke: { x: -58, y: -248 },
+    sparkle: { x: 82, y: -176 },
+    door: { x: 0, y: -18 },
+    glow: [
+      { x: -66, y: -132 },
+      { x: 0, y: -84 },
+    ],
+  },
   aquarium: {
     signY: -210,
     roofY: -232,
@@ -70,6 +81,30 @@ export const BUILDING_ANCHORS: Record<string, BuildingAnchors> = {
       { x: -62, y: -142 },
       { x: 58, y: -142 },
       { x: 0, y: -86 },
+    ],
+  },
+  restaurant: {
+    signY: -300,
+    roofY: -244,
+    smoke: { x: 60, y: -262 },
+    sparkle: { x: -90, y: -212 },
+    door: { x: 0, y: -18 },
+    glow: [
+      { x: -70, y: -150 },
+      { x: 70, y: -150 },
+      { x: 0, y: -74 },
+    ],
+  },
+  ranch: {
+    signY: -286,
+    roofY: -244,
+    smoke: { x: 74, y: -252 },
+    sparkle: { x: -92, y: -206 },
+    door: { x: 0, y: -18 },
+    glow: [
+      { x: -82, y: -124 },
+      { x: 64, y: -118 },
+      { x: 0, y: -66 },
     ],
   },
 };
@@ -384,6 +419,310 @@ function greenhouse(ctx: CanvasRenderingContext2D, palette: TownPalette): void {
   );
 }
 
+function restaurant(ctx: CanvasRenderingContext2D, palette: TownPalette): void {
+  plinth(ctx, 240, palette);
+  // 奶油色店面
+  inkRoundRect(ctx, -100, -206, 200, 186, 18, COLORS.cream, {
+    stroke: palette.outline,
+    width: 3,
+    seed: 351,
+  });
+  paperShade(ctx, -100, -206, 200, 186, 18, 0.12);
+  inkRoundRect(ctx, 78, -200, 22, 180, 9, COLORS.coral, { width: 0 });
+  // 桃色屋顶
+  shape(
+    ctx,
+    [
+      { x: -116, y: -200 },
+      { x: 0, y: -262 },
+      { x: 116, y: -200 },
+      { x: 104, y: -186 },
+      { x: 0, y: -242 },
+      { x: -104, y: -186 },
+    ],
+    COLORS.peach,
+    353,
+    2.8,
+  );
+  ctx.strokeStyle = 'rgba(184,92,72,0.55)';
+  ctx.lineWidth = 1.6;
+  for (let i = -2; i <= 2; i += 1) {
+    ctx.beginPath();
+    ctx.moveTo(i * 30, -246);
+    ctx.lineTo(i * 44, -190);
+    ctx.stroke();
+  }
+  // 烟囱
+  inkRoundRect(ctx, 46, -294, 28, 52, 8, '#C8907F', {
+    stroke: palette.outline,
+    width: 2.2,
+    seed: 355,
+  });
+  // 条纹雨棚
+  const ay = -168;
+  for (let i = 0; i < 6; i += 1) {
+    const sw = 184 / 6;
+    ctx.fillStyle = i % 2 === 0 ? COLORS.coral : COLORS.paper;
+    ctx.fillRect(-92 + i * sw, ay, sw + 0.5, 24);
+  }
+  inkRoundRect(ctx, -92, ay, 184, 26, 5, null, {
+    stroke: 'rgba(58,46,42,0.24)',
+    width: 2,
+    seed: 357,
+  });
+  // 大橱窗
+  window(ctx, -76, -134, 82, 58, palette, 359);
+  // 门
+  inkRoundRect(ctx, 18, -136, 62, 118, 12, palette.wood, {
+    stroke: palette.woodDeep,
+    width: 2.6,
+    seed: 361,
+  });
+  inkRoundRect(ctx, 26, -126, 46, 44, 8, palette.window, {
+    stroke: 'rgba(58,46,42,0.22)',
+    width: 1.8,
+    seed: 363,
+  });
+  inkRoundRect(ctx, 58, -70, 8, 8, 4, COLORS.gold, { width: 0 });
+  // 门口的餐牌
+  inkLine(ctx, [{ x: -84, y: -18 }, { x: -84, y: -66 }], {
+    stroke: palette.woodDeep,
+    width: 4,
+    seed: 365,
+    wobble: 0.2,
+  });
+  shape(
+    ctx,
+    [
+      { x: -116, y: -92 },
+      { x: -84, y: -112 },
+      { x: -52, y: -92 },
+      { x: -84, y: -72 },
+    ],
+    COLORS.paper,
+    367,
+    2.2,
+  );
+  drawText(ctx, 'OPEN', -84, -91, {
+    size: 11,
+    weight: '700',
+    color: COLORS.coral,
+    align: 'center',
+  });
+  // 屋顶小旗
+  inkLine(ctx, [{ x: 0, y: -262 }, { x: 0, y: -288 }], {
+    stroke: palette.woodDeep,
+    width: 3,
+    seed: 369,
+  });
+  ctx.beginPath();
+  ctx.moveTo(0, -286);
+  ctx.lineTo(34, -276);
+  ctx.lineTo(0, -266);
+  ctx.closePath();
+  ctx.fillStyle = COLORS.coral;
+  ctx.fill();
+  ctx.strokeStyle = palette.outline;
+  ctx.lineWidth = 2;
+  ctx.stroke();
+}
+
+function farmhouse(ctx: CanvasRenderingContext2D, palette: TownPalette): void {
+  plinth(ctx, 246, palette);
+  // 谷仓主体
+  inkRoundRect(ctx, -100, -196, 200, 176, 16, COLORS.cream, {
+    stroke: palette.outline,
+    width: 3,
+    seed: 318,
+  });
+  paperShade(ctx, -100, -196, 200, 176, 16, 0.12);
+  inkRoundRect(ctx, 78, -190, 22, 170, 9, COLORS.honey, { width: 0 });
+  // 红色谷仓屋顶
+  shape(
+    ctx,
+    [
+      { x: -116, y: -190 },
+      { x: 0, y: -252 },
+      { x: 116, y: -190 },
+      { x: 104, y: -176 },
+      { x: 0, y: -234 },
+      { x: -104, y: -176 },
+    ],
+    palette.roof1,
+    319,
+    2.8,
+  );
+  ctx.strokeStyle = palette.roof1Deep;
+  ctx.lineWidth = 1.6;
+  for (let i = -2; i <= 2; i += 1) {
+    ctx.beginPath();
+    ctx.moveTo(i * 30, -236);
+    ctx.lineTo(i * 42, -183);
+    ctx.stroke();
+  }
+  // 谷仓大门与交叉木条
+  inkRoundRect(ctx, -46, -124, 92, 102, 10, palette.wood, {
+    stroke: palette.woodDeep,
+    width: 2.6,
+    seed: 320,
+  });
+  inkLine(ctx, [{ x: -36, y: -116 }, { x: 36, y: -30 }], {
+    stroke: palette.woodDeep,
+    width: 5,
+    seed: 322,
+    wobble: 0.2,
+  });
+  inkLine(ctx, [{ x: 36, y: -116 }, { x: -36, y: -30 }], {
+    stroke: palette.woodDeep,
+    width: 5,
+    seed: 324,
+    wobble: 0.2,
+  });
+  // 窗
+  for (const wx of [-78, 56]) {
+    inkRoundRect(ctx, wx, -160, 38, 34, 6, palette.window, {
+      stroke: palette.outline,
+      width: 2,
+      seed: 326 + wx,
+    });
+    inkLine(ctx, [{ x: wx + 19, y: -160 }, { x: wx + 19, y: -126 }], {
+      stroke: palette.outline,
+      width: 1.5,
+      seed: 330 + wx,
+      wobble: 0.1,
+    });
+  }
+  // 筒仓
+  inkRoundRect(ctx, 88, -236, 42, 216, 18, TOWN_COLORS.stone, {
+    stroke: palette.outline,
+    width: 2.6,
+    seed: 334,
+  });
+  inkRoundRect(ctx, 88, -236, 42, 34, 16, palette.roof2, {
+    stroke: palette.roof2Deep,
+    width: 2,
+    seed: 336,
+  });
+  for (let i = 0; i < 4; i += 1) {
+    inkLine(ctx, [{ x: 92, y: -190 + i * 38 }, { x: 126, y: -190 + i * 38 }], {
+      stroke: 'rgba(154,101,56,0.36)',
+      width: 1.2,
+      seed: 338 + i,
+      wobble: 0.1,
+    });
+  }
+  // 干草与南瓜
+  inkEllipse(ctx, -118, -20, 26, 18, COLORS.honey, {
+    stroke: palette.woodDeep,
+    width: 2,
+    seed: 342,
+  });
+  inkEllipse(ctx, 124, -18, 18, 13, COLORS.honeyDeep, {
+    stroke: palette.woodDeep,
+    width: 2,
+    seed: 344,
+  });
+  drawPetal(ctx, 118, -26, 5, COLORS.leaf);
+}
+
+function ranchBarn(ctx: CanvasRenderingContext2D, palette: TownPalette): void {
+  plinth(ctx, 252, palette);
+  // 牧场主屋：奶油墙 + 绿色屋顶，和农场的红谷仓区分开。
+  inkRoundRect(ctx, -104, -198, 208, 178, 18, COLORS.paper, {
+    stroke: palette.outline,
+    width: 3,
+    seed: 341,
+  });
+  paperShade(ctx, -104, -198, 208, 178, 18, 0.12);
+  inkRoundRect(ctx, 82, -192, 22, 172, 9, COLORS.leaf, { width: 0 });
+  shape(
+    ctx,
+    [
+      { x: -120, y: -192 },
+      { x: 0, y: -254 },
+      { x: 120, y: -192 },
+      { x: 106, y: -178 },
+      { x: 0, y: -236 },
+      { x: -106, y: -178 },
+    ],
+    palette.roof3,
+    343,
+    2.8,
+  );
+  ctx.strokeStyle = palette.roof3Deep;
+  ctx.lineWidth = 1.6;
+  for (let i = -2; i <= 2; i += 1) {
+    ctx.beginPath();
+    ctx.moveTo(i * 30, -238);
+    ctx.lineTo(i * 44, -186);
+    ctx.stroke();
+  }
+  // 门
+  inkRoundRect(ctx, -44, -126, 88, 104, 10, palette.wood, {
+    stroke: palette.woodDeep,
+    width: 2.6,
+    seed: 345,
+  });
+  inkLine(ctx, [{ x: -34, y: -118 }, { x: 34, y: -30 }], {
+    stroke: palette.woodDeep,
+    width: 4.5,
+    seed: 347,
+    wobble: 0.2,
+  });
+  inkLine(ctx, [{ x: 34, y: -118 }, { x: -34, y: -30 }], {
+    stroke: palette.woodDeep,
+    width: 4.5,
+    seed: 349,
+    wobble: 0.2,
+  });
+  // 奶罐
+  inkRoundRect(ctx, -94, -58, 30, 40, 8, COLORS.sky, {
+    stroke: palette.outline,
+    width: 2,
+    seed: 351,
+  });
+  inkRoundRect(ctx, -88, -66, 18, 10, 4, COLORS.paper, {
+    stroke: palette.outline,
+    width: 1.6,
+    seed: 353,
+  });
+  // 小栅栏
+  for (const x of [-118, 112]) {
+    inkLine(ctx, [{ x, y: -8 }, { x, y: -50 }], {
+      stroke: palette.woodDeep,
+      width: 4,
+      seed: 355 + x,
+      wobble: 0.15,
+    });
+  }
+  ctx.strokeStyle = palette.wood;
+  ctx.lineWidth = 2.6;
+  ctx.beginPath();
+  ctx.moveTo(-118, -38);
+  ctx.quadraticCurveTo(-80, -28, -44, -38);
+  ctx.moveTo(44, -38);
+  ctx.quadraticCurveTo(80, -28, 112, -38);
+  ctx.stroke();
+  // 干草堆与鸡
+  inkEllipse(ctx, -108, -18, 22, 15, COLORS.honey, {
+    stroke: palette.woodDeep,
+    width: 2,
+    seed: 357,
+  });
+  inkEllipse(ctx, 100, -18, 16, 12, COLORS.cream, {
+    stroke: COLORS.ink,
+    width: 2,
+    seed: 359,
+  });
+  inkEllipse(ctx, 112, -28, 9, 8, COLORS.paper, {
+    stroke: COLORS.ink,
+    width: 1.6,
+    seed: 361,
+  });
+  inkRoundRect(ctx, 108, -38, 5, 8, 2, COLORS.coral, { width: 0 });
+  drawPetal(ctx, 118, -22, 5, COLORS.leaf);
+}
+
 function bakery(ctx: CanvasRenderingContext2D, palette: TownPalette): void {
   plinth(ctx, 236, palette);
   inkRoundRect(ctx, -100, -212, 200, 190, 18, COLORS.honey, {
@@ -681,6 +1020,15 @@ export function drawBuildingBody(
     case 'aquarium':
       aquarium(ctx, palette);
       break;
+    case 'farm':
+      farmhouse(ctx, palette);
+      break;
+    case 'restaurant':
+      restaurant(ctx, palette);
+      break;
+    case 'ranch':
+      ranchBarn(ctx, palette);
+      break;
     default:
       plinth(ctx, 230, palette);
       inkRoundRect(ctx, -100, -210, 200, 188, 18, building.accent.soft, {
@@ -820,4 +1168,283 @@ export function drawTownBuilding(
   buildGardenLevel: number,
 ): void {
   drawBuildingBody(ctx, building, palette, buildGardenLevel);
+}
+
+export const FACILITY_ANCHORS: Record<string, BuildingAnchors> = {
+  warehouse: {
+    signY: -318,
+    roofY: -258,
+    smoke: { x: 66, y: -300 },
+    sparkle: { x: -96, y: -214 },
+    door: { x: 0, y: -18 },
+    glow: [
+      { x: -58, y: -108 },
+      { x: 58, y: -108 },
+      { x: 0, y: -46 },
+    ],
+  },
+};
+
+/** 库房招牌的小木箱图标：不做成游戏图标，避免和场馆混淆。 */
+function drawCrateIcon(ctx: CanvasRenderingContext2D, cx: number, cy: number, size: number): void {
+  const half = size / 2;
+  inkRoundRect(ctx, cx - half, cy - half * 0.8, size, size * 0.8, 4, COLORS.honey, {
+    stroke: COLORS.honeyDeep,
+    width: 2,
+    seed: 2401,
+  });
+  inkLine(ctx, [{ x: cx - half + 3, y: cy - half * 0.8 + 4 }, { x: cx + half - 3, y: cy + half * 0.8 - 4 }], {
+    stroke: COLORS.honeyDeep,
+    width: 2,
+    seed: 2403,
+    wobble: 0.2,
+  });
+  inkLine(ctx, [{ x: cx - half + 3, y: cy + half * 0.8 - 4 }, { x: cx + half - 3, y: cy - half * 0.8 + 4 }], {
+    stroke: COLORS.honeyDeep,
+    width: 2,
+    seed: 2405,
+    wobble: 0.2,
+  });
+}
+
+/** 王都仓库：木构仓房 + 双开横木大门 + 门口木箱麻袋。 */
+function warehouse(ctx: CanvasRenderingContext2D, palette: TownPalette): void {
+  plinth(ctx, 264, palette);
+  // 墙体
+  inkRoundRect(ctx, -108, -232, 216, 206, 14, TOWN_COLORS.wood, {
+    stroke: palette.outline,
+    width: 3,
+    seed: 2411,
+  });
+  paperShade(ctx, -108, -232, 216, 206, 14, 0.12);
+  // 木板缝
+  ctx.strokeStyle = 'rgba(154,101,56,0.55)';
+  ctx.lineWidth = 1.4;
+  for (let i = 0; i < 7; i += 1) {
+    const x = -98 + i * 32;
+    ctx.beginPath();
+    ctx.moveTo(x, -226);
+    ctx.lineTo(x, -30);
+    ctx.stroke();
+  }
+  // 屋顶（人字）
+  shape(
+    ctx,
+    [
+      { x: -126, y: -232 },
+      { x: 0, y: -300 },
+      { x: 126, y: -232 },
+    ],
+    palette.roof1,
+    2415,
+    3,
+  );
+  inkRoundRect(ctx, -134, -240, 268, 18, 9, palette.roof1Deep, { width: 0 });
+  // 通风小阁
+  inkRoundRect(ctx, -22, -320, 44, 34, 8, palette.roof1, {
+    stroke: palette.outline,
+    width: 2.4,
+    seed: 2419,
+  });
+  inkRoundRect(ctx, -14, -312, 28, 18, 4, palette.window, { width: 0 });
+  shape(
+    ctx,
+    [
+      { x: -30, y: -318 },
+      { x: 0, y: -340 },
+      { x: 30, y: -318 },
+    ],
+    palette.roof1Deep,
+    2421,
+    2.4,
+  );
+  // 双开大门
+  inkRoundRect(ctx, -66, -168, 132, 142, 12, TOWN_COLORS.woodDeep, {
+    stroke: palette.outline,
+    width: 2.8,
+    seed: 2425,
+  });
+  inkLine(ctx, [{ x: 0, y: -168 }, { x: 0, y: -26 }], {
+    stroke: palette.outline,
+    width: 2.6,
+    seed: 2427,
+    wobble: 0.2,
+  });
+  for (const side of [-1, 1]) {
+    inkLine(ctx, [{ x: side * 58, y: -156 }, { x: side * 10, y: -34 }], {
+      stroke: COLORS.honeyDeep,
+      width: 4,
+      seed: 2429 + side,
+      wobble: 0.25,
+    });
+    inkLine(ctx, [{ x: side * 58, y: -34 }, { x: side * 10, y: -156 }], {
+      stroke: COLORS.honeyDeep,
+      width: 4,
+      seed: 2431 + side,
+      wobble: 0.25,
+    });
+  }
+  // 门楣木梁
+  inkRoundRect(ctx, -74, -182, 148, 16, 6, TOWN_COLORS.woodDeep, {
+    stroke: palette.outline,
+    width: 2,
+    seed: 2433,
+  });
+  // 窗
+  window(ctx, -96, -214, 34, 30, palette, 2435);
+  window(ctx, 62, -214, 34, 30, palette, 2437);
+  // 门口暖灯
+  inkLine(ctx, [{ x: -84, y: -186 }, { x: -84, y: -172 }], {
+    stroke: palette.woodDeep,
+    width: 2,
+    seed: 2439,
+  });
+  inkEllipse(ctx, -84, -166, 7, 8, palette.lamp, {
+    stroke: palette.outline,
+    width: 1.8,
+    seed: 2441,
+  });
+  // 木箱 / 麻袋 / 木桶
+  inkRoundRect(ctx, 76, -66, 40, 38, 6, COLORS.honey, {
+    stroke: palette.outline,
+    width: 2.2,
+    seed: 2443,
+  });
+  inkLine(ctx, [{ x: 80, y: -60 }, { x: 112, y: -34 }], {
+    stroke: COLORS.honeyDeep,
+    width: 2,
+    seed: 2445,
+    wobble: 0.2,
+  });
+  inkRoundRect(ctx, 84, -100, 30, 30, 6, COLORS.cream, {
+    stroke: palette.outline,
+    width: 2,
+    seed: 2447,
+  });
+  inkEllipse(ctx, -98, -50, 20, 24, COLORS.cream, {
+    stroke: palette.outline,
+    width: 2.2,
+    seed: 2449,
+  });
+  inkEllipse(ctx, -98, -74, 9, 6, COLORS.cream, {
+    stroke: palette.outline,
+    width: 2,
+    seed: 2451,
+  });
+  inkRoundRect(ctx, -126, -78, 30, 50, 8, TOWN_COLORS.woodDeep, {
+    stroke: palette.outline,
+    width: 2.2,
+    seed: 2453,
+  });
+  inkLine(ctx, [{ x: -126, y: -56 }, { x: -96, y: -56 }], {
+    stroke: COLORS.honeyDeep,
+    width: 2,
+    seed: 2455,
+  });
+  // 斜靠的木梯
+  inkLine(ctx, [{ x: 46, y: -26 }, { x: 72, y: -170 }], {
+    stroke: palette.woodDeep,
+    width: 5,
+    seed: 2457,
+    wobble: 0.4,
+  });
+  inkLine(ctx, [{ x: 66, y: -26 }, { x: 92, y: -170 }], {
+    stroke: palette.woodDeep,
+    width: 5,
+    seed: 2459,
+    wobble: 0.4,
+  });
+  for (let i = 0; i < 4; i += 1) {
+    inkLine(
+      ctx,
+      [
+        { x: 50 + i * 2.4, y: -56 - i * 30 },
+        { x: 70 + i * 2.4, y: -56 - i * 30 },
+      ],
+      { stroke: palette.wood, width: 3.4, seed: 2461 + i, wobble: 0.2 },
+    );
+  }
+  // 门口草
+  for (let i = 0; i < 5; i += 1) {
+    inkLine(
+      ctx,
+      [
+        { x: -20 + i * 12, y: -4 },
+        { x: -16 + i * 12, y: -18 },
+      ],
+      { stroke: palette.grassDeep, width: 2.6, seed: 2467 + i, wobble: 0.6 },
+    );
+  }
+}
+
+export function drawFacilityBody(
+  ctx: CanvasRenderingContext2D,
+  facility: TownFacilityLayout,
+  palette: TownPalette,
+): void {
+  switch (facility.facilityId) {
+    case 'warehouse':
+      warehouse(ctx, palette);
+      break;
+    default:
+      plinth(ctx, 230, palette);
+      break;
+  }
+}
+
+/** 设施的动态层：招牌、夜灯、木箱微光；没有「可游玩」徽章。 */
+export function drawFacilityOverlay(
+  ctx: CanvasRenderingContext2D,
+  facility: TownFacilityLayout,
+  palette: TownPalette,
+  time: number,
+  reducedMotion: boolean,
+): void {
+  const anchors = FACILITY_ANCHORS[facility.facilityId];
+  if (!anchors) return;
+
+  if (palette.night || palette.phase === 'dusk') {
+    const base = palette.night ? 0.2 : 0.1;
+    for (const point of anchors.glow) {
+      for (let i = 4; i > 0; i -= 1) {
+        ctx.globalAlpha = base * (0.35 + i * 0.12);
+        ctx.fillStyle = palette.lamp;
+        ctx.beginPath();
+        ctx.arc(point.x, point.y, 10 + i * 11, 0, Math.PI * 2);
+        ctx.fill();
+      }
+    }
+    ctx.globalAlpha = 1;
+  }
+
+  drawSmoke(ctx, anchors.smoke, time, reducedMotion);
+
+  if (anchors.signY + 26 < anchors.roofY) {
+    inkLine(ctx, [{ x: 0, y: anchors.roofY + 6 }, { x: 0, y: anchors.signY + 22 }], {
+      stroke: palette.woodDeep,
+      width: 4.5,
+      seed: 2471 + facility.base.x,
+      wobble: 0.2,
+    });
+    inkLine(ctx, [{ x: -54, y: anchors.signY + 21 }, { x: 54, y: anchors.signY + 21 }], {
+      stroke: palette.woodDeep,
+      width: 3.4,
+      seed: 2475 + facility.base.x,
+      wobble: 0.2,
+    });
+  }
+
+  const swing = reducedMotion ? 0 : Math.sin(time * 1.5 + facility.base.x) * 0.022;
+  ctx.save();
+  ctx.translate(0, anchors.signY);
+  ctx.rotate(swing);
+  signBoardBase(ctx, 152, 42, palette);
+  drawCrateIcon(ctx, -50, 21, 22);
+  drawText(ctx, facility.title, -28, 21, {
+    size: 15,
+    weight: '700',
+    color: palette.outline,
+    maxWidth: 112,
+  });
+  ctx.restore();
 }

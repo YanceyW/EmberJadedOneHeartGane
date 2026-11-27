@@ -1,24 +1,27 @@
 import { LEVELS } from '../data/levels';
 
 export interface Match3Save {
-  schemaVersion: 3;
+  schemaVersion: 5;
+  /** 闯关模式最高分。 */
   bestScore: number;
+  /** 无时间限制模式最高分。 */
+  endlessBest: number;
+  /** 无时间限制单局最长用时（秒），只做展示。 */
+  endlessBestSeconds: number;
   wins: number;
   unlockedLevel: number;
   stars: Record<string, number>;
-  dailyDate: string;
-  dailyBest: number;
 }
 
 export function defaultSave(): Match3Save {
   return {
-    schemaVersion: 3,
+    schemaVersion: 5,
     bestScore: 0,
+    endlessBest: 0,
+    endlessBestSeconds: 0,
     wins: 0,
     unlockedLevel: 1,
     stars: {},
-    dailyDate: '',
-    dailyBest: 0,
   };
 }
 
@@ -28,6 +31,12 @@ export function migrateSave(input: unknown): Match3Save {
   const raw = input as Record<string, unknown>;
   if (typeof raw.bestScore === 'number' && Number.isFinite(raw.bestScore)) {
     save.bestScore = Math.max(0, Math.floor(raw.bestScore));
+  }
+  if (typeof raw.endlessBest === 'number' && Number.isFinite(raw.endlessBest)) {
+    save.endlessBest = Math.max(0, Math.floor(raw.endlessBest));
+  }
+  if (typeof raw.endlessBestSeconds === 'number' && Number.isFinite(raw.endlessBestSeconds)) {
+    save.endlessBestSeconds = Math.max(0, Math.floor(raw.endlessBestSeconds));
   }
   if (typeof raw.wins === 'number' && Number.isFinite(raw.wins)) {
     save.wins = Math.max(0, Math.floor(raw.wins));
@@ -42,14 +51,7 @@ export function migrateSave(input: unknown): Match3Save {
       }
     }
   }
-  if (typeof raw.dailyDate === 'string') {
-    save.dailyDate = raw.dailyDate;
-  }
-  if (typeof raw.dailyBest === 'number' && Number.isFinite(raw.dailyBest)) {
-    save.dailyBest = Math.max(0, Math.floor(raw.dailyBest));
-  }
-
-  // v1/v2 只有基础进度，上面的默认值已经兼容，无需额外字段。
+  // v1–v3 的每日挑战字段不再读取；旧档只保留闯关进度。
   return save;
 }
 
@@ -60,22 +62,16 @@ export function mergeSaves(local: Match3Save, remote: Match3Save): Match3Save {
     stars[key] = Math.max(stars[key] ?? 0, value);
   }
 
-  let dailyDate = local.dailyDate;
-  let dailyBest = local.dailyBest;
-  if (remote.dailyDate > local.dailyDate) {
-    dailyDate = remote.dailyDate;
-    dailyBest = remote.dailyBest;
-  } else if (remote.dailyDate === local.dailyDate) {
-    dailyBest = Math.max(local.dailyBest, remote.dailyBest);
-  }
-
   return {
-    schemaVersion: 3,
+    schemaVersion: 5,
     bestScore: Math.max(local.bestScore, remote.bestScore),
+    endlessBest: Math.max(local.endlessBest, remote.endlessBest || 0),
+    endlessBestSeconds: Math.max(
+      local.endlessBestSeconds || 0,
+      remote.endlessBestSeconds || 0,
+    ),
     wins: Math.max(local.wins, remote.wins),
     unlockedLevel: Math.max(local.unlockedLevel, remote.unlockedLevel),
     stars,
-    dailyDate,
-    dailyBest,
   };
 }

@@ -6,19 +6,19 @@ export interface Match3Level {
   colors: number;
 }
 
-/** 每关固定 3 分钟，难度只靠目标分数上涨。 */
+/** 每关固定 3 分钟，难度只靠目标分数上涨；达成目标后继续冲星。 */
 export const LEVEL_SECONDS = 180;
 
 export const LEVELS: Match3Level[] = [
-  { id: 1, title: '初入王都', seconds: LEVEL_SECONDS, target: 1500, colors: 5 },
-  { id: 2, title: '甜点街角', seconds: LEVEL_SECONDS, target: 1800, colors: 5 },
-  { id: 3, title: '喷泉广场', seconds: LEVEL_SECONDS, target: 2100, colors: 5 },
-  { id: 4, title: '花瓣集市', seconds: LEVEL_SECONDS, target: 2400, colors: 5 },
-  { id: 5, title: '蜂蜜工坊', seconds: LEVEL_SECONDS, target: 2700, colors: 5 },
-  { id: 6, title: '星光露台', seconds: LEVEL_SECONDS, target: 3000, colors: 5 },
-  { id: 7, title: '莓果庭院', seconds: LEVEL_SECONDS, target: 3300, colors: 5 },
-  { id: 8, title: '王都茶会', seconds: LEVEL_SECONDS, target: 3600, colors: 5 },
-  { id: 9, title: '暮色长廊', seconds: LEVEL_SECONDS, target: 3900, colors: 5 },
+  { id: 1, title: '甜品屋初遇', seconds: LEVEL_SECONDS, target: 1500, colors: 5 },
+  { id: 2, title: '奶油橱窗', seconds: LEVEL_SECONDS, target: 1800, colors: 5 },
+  { id: 3, title: '糖霜喷泉', seconds: LEVEL_SECONDS, target: 2100, colors: 5 },
+  { id: 4, title: '农场晨露', seconds: LEVEL_SECONDS, target: 2400, colors: 5 },
+  { id: 5, title: '麦田小径', seconds: LEVEL_SECONDS, target: 2700, colors: 5 },
+  { id: 6, title: '果园午后', seconds: LEVEL_SECONDS, target: 3000, colors: 5 },
+  { id: 7, title: '面包房', seconds: LEVEL_SECONDS, target: 3300, colors: 5 },
+  { id: 8, title: '王都食集', seconds: LEVEL_SECONDS, target: 3600, colors: 5 },
+  { id: 9, title: '月光餐桌', seconds: LEVEL_SECONDS, target: 3900, colors: 5 },
   { id: 10, title: '王都之心', seconds: LEVEL_SECONDS, target: 4200, colors: 5 },
 ];
 

@@ -1,4 +1,4 @@
-import { GAMES, GameManifestEntry } from '../../shared/content/games-manifest.generated';
+﻿import { GAMES, GameManifestEntry } from '../../shared/content/games-manifest.generated';
 import { Rect } from '../../shared/design-system/draw';
 import { Accent, accentOf } from '../../shared/design-system/tokens';
 import { TownCameraBounds } from './town-camera';
@@ -8,9 +8,9 @@ export interface TownPoint {
   y: number;
 }
 
-export interface TownBuildingLayout {
-  entry: GameManifestEntry;
-  accent: Accent;
+/** 街区里一切可点建筑的公共几何。 */
+export interface TownStructure {
+  id: string;
   /** 世界坐标的落地点；屏幕默认相机下 = base.x + viewWidth/2。 */
   base: TownPoint;
   /** 世界坐标的建筑命中/绘制包围盒（含招牌）。 */
@@ -18,7 +18,25 @@ export interface TownBuildingLayout {
   hit: Rect;
   depth: number;
   scale: number;
+  accent: Accent;
 }
+
+/** 场馆（来自 games manifest，点了会进小游戏）。 */
+export interface TownBuildingLayout extends TownStructure {
+  kind: 'venue';
+  entry: GameManifestEntry;
+}
+
+/** 设施（不是小游戏，点了开大厅面板，例如王都仓库）。 */
+export interface TownFacilityLayout extends TownStructure {
+  kind: 'facility';
+  facilityId: 'warehouse';
+  title: string;
+}
+
+export type TownHit =
+  | { kind: 'venue'; building: TownBuildingLayout }
+  | { kind: 'facility'; facility: TownFacilityLayout };
 
 export interface ResidentPath {
   id: string;
@@ -53,6 +71,10 @@ export interface TownLayout {
   fountain: TownPoint;
   royal: { x: number; y: number; scale: number; hit: Rect };
   buildings: TownBuildingLayout[];
+  /** 非小游戏的建筑（库房）。 */
+  facilities: TownFacilityLayout[];
+  /** 建筑 + 设施，绘制与命中都按 depth 排序用它。 */
+  structures: Array<TownBuildingLayout | TownFacilityLayout>;
   residents: ResidentPath[];
   cameraBounds: TownCameraBounds;
   futureAnchors: FutureAnchor[];
@@ -60,7 +82,7 @@ export interface TownLayout {
   origin: TownPoint;
 }
 
-const WORLD_WIDTH = 1500;
+const WORLD_WIDTH = 1800;
 
 function expand(rect: Rect, pad: number): Rect {
   return { x: rect.x - pad, y: rect.y - pad, w: rect.w + pad * 2, h: rect.h + pad * 2 };
@@ -102,31 +124,53 @@ export function computeTownLayout(
     garden: { screenX: 345, offset: 20, scale: 0.82, w: 260, h: 350 },
     merge: { screenX: 555, offset: 35, scale: 0.82, w: 250, h: 340 },
     aquarium: { screenX: 615, offset: 275, scale: 0.92, w: 260, h: 330 },
+    // 农场在东街尽头；默认视口外，向右平移可见。
+    farm: { screenX: 880, offset: 120, scale: 0.78, w: 280, h: 340 },
+    // 餐厅在农场前的街口，和农场共用东街。
+    restaurant: { screenX: 990, offset: 330, scale: 0.78, w: 270, h: 330 },
+    // 牧场在东街尽头，和农场/餐厅共用一条产业链。
+    ranch: { screenX: 1130, offset: 120, scale: 0.78, w: 300, h: 340 },
   };
 
-  const buildings = GAMES.map((entry) => {
-    const spec = specs[entry.id] ?? { screenX: width / 2, offset: 120, scale: 0.9, w: 250, h: 330 };
-    const scale = spec.scale * u;
+  function geometry(screenX: number, offset: number, scaleBase: number, w: number, h: number) {
+    const scale = scaleBase * u;
     const base = {
-      x: toWorldX(spec.screenX, width),
-      y: groundTop + spec.offset * u,
+      x: toWorldX(screenX, width),
+      y: groundTop + offset * u,
     };
     const art: Rect = {
-      x: base.x - (spec.w * scale) / 2,
-      y: base.y - spec.h * scale,
-      w: spec.w * scale,
-      h: spec.h * scale,
+      x: base.x - (w * scale) / 2,
+      y: base.y - h * scale,
+      w: w * scale,
+      h: h * scale,
     };
+    return { base, art, hit: expand(art, 6), depth: base.y, scale };
+  }
+
+  const buildings: TownBuildingLayout[] = GAMES.map((entry) => {
+    const spec = specs[entry.id] ?? { screenX: width / 2, offset: 120, scale: 0.9, w: 250, h: 330 };
     return {
+      kind: 'venue',
+      id: entry.id,
       entry,
       accent: accentOf(entry.accent),
-      base,
-      art,
-      hit: expand(art, 6),
-      depth: base.y,
-      scale,
+      ...geometry(spec.screenX, spec.offset, spec.scale, spec.w, spec.h),
     };
   });
+
+  // 西街库房：和东街的农场/餐厅对称，默认视口外，向左拖就能看到。
+  const facilities: TownFacilityLayout[] = [
+    {
+      kind: 'facility',
+      id: 'warehouse',
+      facilityId: 'warehouse',
+      title: '王都仓库',
+      accent: accentOf('honey'),
+      ...geometry(-180, 300, 0.85, 290, 380),
+    },
+  ];
+
+  const structures: Array<TownBuildingLayout | TownFacilityLayout> = [...buildings, ...facilities];
 
   const fountain = { x: 0, y: groundTop + 270 * u };
   const royalY = groundTop + 400 * u;
@@ -192,6 +236,8 @@ export function computeTownLayout(
     fountain,
     royal,
     buildings,
+    facilities,
+    structures,
     residents,
     cameraBounds: {
       worldWidth: WORLD_WIDTH,
@@ -207,19 +253,32 @@ export function computeTownLayout(
   };
 }
 
+/** 命中最靠前的建筑或设施（按 depth 从近到远）。 */
+export function townStructureAt(
+  layout: TownLayout,
+  worldX: number,
+  worldY: number,
+): TownHit | null {
+  const ordered = [...layout.structures].sort((a, b) => b.depth - a.depth);
+  for (const structure of ordered) {
+    const hit = structure.hit;
+    if (worldX >= hit.x && worldX <= hit.x + hit.w && worldY >= hit.y && worldY <= hit.y + hit.h) {
+      return structure.kind === 'venue'
+        ? { kind: 'venue', building: structure }
+        : { kind: 'facility', facility: structure };
+    }
+  }
+  return null;
+}
+
+/** 旧调用：只关心场馆。 */
 export function townBuildingAt(
   layout: TownLayout,
   worldX: number,
   worldY: number,
 ): TownBuildingLayout | null {
-  const ordered = [...layout.buildings].sort((a, b) => b.depth - a.depth);
-  for (const building of ordered) {
-    const hit = building.hit;
-    if (worldX >= hit.x && worldX <= hit.x + hit.w && worldY >= hit.y && worldY <= hit.y + hit.h) {
-      return building;
-    }
-  }
-  return null;
+  const hit = townStructureAt(layout, worldX, worldY);
+  return hit && hit.kind === 'venue' ? hit.building : null;
 }
 
 export function isOverRoyal(layout: TownLayout, worldX: number, worldY: number): boolean {

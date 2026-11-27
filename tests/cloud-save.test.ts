@@ -45,8 +45,7 @@ describe('mergeSaves', () => {
       wins: 2,
       unlockedLevel: 3,
       stars: { '1': 3, '2': 1 },
-      dailyDate: '2026-11-26',
-      dailyBest: 1500,
+      endlessBest: 2400,
     };
     const remote: Match3Save = {
       ...defaultSave(),
@@ -54,8 +53,7 @@ describe('mergeSaves', () => {
       wins: 5,
       unlockedLevel: 4,
       stars: { '1': 2, '2': 3, '3': 3 },
-      dailyDate: '2026-11-26',
-      dailyBest: 1800,
+      endlessBest: 3100,
     };
 
     const merged = mergeSaves(local, remote);
@@ -64,17 +62,16 @@ describe('mergeSaves', () => {
     expect(merged.wins).toBe(5);
     expect(merged.unlockedLevel).toBe(4);
     expect(merged.stars).toEqual({ '1': 3, '2': 3, '3': 3 });
-    expect(merged.dailyBest).toBe(1800);
+    expect(merged.endlessBest).toBe(3100);
   });
 
-  it('prefers the newer daily entry', () => {
-    const local: Match3Save = { ...defaultSave(), dailyDate: '2026-11-25', dailyBest: 2000 };
-    const remote: Match3Save = { ...defaultSave(), dailyDate: '2026-11-26', dailyBest: 1200 };
+  it('keeps the endless best across devices', () => {
+    const local: Match3Save = { ...defaultSave(), endlessBest: 2000 };
+    const remote: Match3Save = { ...defaultSave(), endlessBest: 1200 };
 
     const merged = mergeSaves(local, remote);
 
-    expect(merged.dailyDate).toBe('2026-11-26');
-    expect(merged.dailyBest).toBe(1200);
+    expect(merged.endlessBest).toBe(2000);
   });
 });
 

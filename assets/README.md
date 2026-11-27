@@ -10,7 +10,10 @@ assets/
 │   ├── match3/
 │   ├── garden/
 │   ├── merge/
-│   └── aquarium/
+│   ├── aquarium/
+│   ├── farm/
+│   ├── restaurant/
+│   └── ranch/
 └── raw/             AI 原图/参考图/未压缩素材（不进包）
 ```
 

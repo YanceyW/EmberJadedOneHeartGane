@@ -10,14 +10,15 @@ import { drawRoyalPair, RoyalMood, RoyalOutfitId } from '../../shared/design-sys
 import { COLORS } from '../../shared/design-system/tokens';
 import { platform } from '../../shared/platform/wx';
 import { TownArt } from './town-art';
-import { ResidentPath, TownBuildingLayout, TownLayout } from './town-layout';
-import { drawBuildingOverlay } from './town-buildings';
+import { ResidentPath, TownBuildingLayout, TownFacilityLayout, TownLayout } from './town-layout';
+import { drawBuildingOverlay, drawFacilityOverlay } from './town-buildings';
 import { TownCamera, worldToScreen } from './town-camera';
 import { TownPalette, TownPhase } from './town-palette';
 
 export interface TownViewState {
   palette: TownPalette;
   phase: TownPhase;
+  style: string;
   camera: TownCamera;
   art: TownArt;
   time: number;
@@ -482,6 +483,43 @@ function drawForeground(
     ctx.restore();
   }
 
+  // 街灯等级：解锁后在两盏路灯之间挂一串暖灯。
+  const lightLevel = Math.max(0, Math.min(3, state.build.lights));
+  if (lightLevel > 0) {
+    const y = lampL.y - (112 + lightLevel * 8) * camera.zoom;
+    const x1 = lampL.x;
+    const x2 = lampR.x;
+    ctx.save();
+    ctx.strokeStyle = palette.woodDeep;
+    ctx.lineWidth = 1.8;
+    ctx.beginPath();
+    ctx.moveTo(x1, y);
+    ctx.quadraticCurveTo((x1 + x2) / 2, y + 20, x2, y);
+    ctx.stroke();
+    const bulbs = 4 + lightLevel * 2;
+    for (let i = 0; i < bulbs; i += 1) {
+      const t = (i + 0.5) / bulbs;
+      const bx = x1 + (x2 - x1) * t;
+      const by = y + Math.sin(t * Math.PI) * 20;
+      if (palette.night || state.phase === 'dusk') {
+        ctx.globalAlpha = 0.13;
+        ctx.fillStyle = palette.lamp;
+        ctx.beginPath();
+        ctx.arc(bx, by + 8, 13, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.globalAlpha = 1;
+      }
+      ctx.fillStyle = palette.lamp;
+      ctx.beginPath();
+      ctx.arc(bx, by + 8, 3.5, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.strokeStyle = palette.woodDeep;
+      ctx.lineWidth = 1;
+      ctx.stroke();
+    }
+    ctx.restore();
+  }
+
   // 左下花圃
   if (state.quality !== 'low') {
     const base = worldToScreen(foregroundCamera, -300, ground + 650 * u, layout.width, layout.focusY);
@@ -516,6 +554,155 @@ function drawForeground(
   ctx.restore();
 }
 
+function drawStyleDecor(
+  ctx: CanvasRenderingContext2D,
+  layout: TownLayout,
+  state: TownViewState,
+): void {
+  if (state.style === 'classic') return;
+  const ground = layout.groundTop;
+  const u = Math.min(1.05, Math.max(0.74, (layout.townBottom - layout.townTop) / 1100));
+
+  if (state.style === 'lantern') {
+    const left = worldToScreen(state.camera, -260, ground - 300 * u, layout.width, layout.focusY);
+    const right = worldToScreen(state.camera, 260, ground - 300 * u, layout.width, layout.focusY);
+    ctx.save();
+    ctx.strokeStyle = state.palette.wood;
+    ctx.lineWidth = 2.5;
+    ctx.beginPath();
+    ctx.moveTo(left.x, left.y);
+    ctx.quadraticCurveTo((left.x + right.x) / 2, left.y + 28, right.x, right.y);
+    ctx.stroke();
+    for (let i = 0; i < 7; i += 1) {
+      const t = i / 6;
+      const x = left.x + (right.x - left.x) * t;
+      const y = left.y + Math.sin(t * Math.PI) * 28;
+      if (state.palette.night) {
+        for (let ring = 2; ring > 0; ring -= 1) {
+          ctx.globalAlpha = ring === 2 ? 0.1 : 0.18;
+          ctx.fillStyle = state.palette.lamp;
+          ctx.beginPath();
+          ctx.arc(x, y + 14, 10 + ring * 5, 0, Math.PI * 2);
+          ctx.fill();
+        }
+        ctx.globalAlpha = 1;
+      }
+      inkLine(ctx, [{ x, y }, { x, y: y + 8 }], {
+        stroke: state.palette.woodDeep,
+        width: 1.5,
+        seed: 701 + i,
+        wobble: 0.1,
+      });
+      inkRoundRect(ctx, x - 9, y + 8, 18, 20, 8, COLORS.berry, {
+        stroke: state.palette.woodDeep,
+        width: 1.8,
+        seed: 711 + i,
+      });
+      inkRoundRect(ctx, x - 7, y + 8, 14, 4, 2, COLORS.gold, { width: 0 });
+      inkRoundRect(ctx, x - 7, y + 24, 14, 4, 2, COLORS.gold, { width: 0 });
+      ctx.globalAlpha = 0.7;
+      drawPetal(ctx, x, y + 16, 3, COLORS.honey);
+      ctx.globalAlpha = 1;
+    }
+    ctx.restore();
+  }
+
+  if (state.style === 'spring') {
+    for (const [wx, scale] of [
+      [-290, 1],
+      [300, 0.9],
+    ] as const) {
+      const p = worldToScreen(state.camera, wx, ground + 540 * u, layout.width, layout.focusY);
+      ctx.save();
+      ctx.translate(p.x, p.y);
+      ctx.scale(scale * state.camera.zoom, scale * state.camera.zoom);
+      inkLine(ctx, [{ x: 0, y: 0 }, { x: 0, y: -62 }], {
+        stroke: state.palette.woodDeep,
+        width: 7,
+        seed: 721 + wx,
+        wobble: 0.4,
+      });
+      for (let i = 0; i < 5; i += 1) {
+        drawPetal(ctx, -30 + i * 15, -64 - (i % 2) * 12, 13 + (i % 3) * 3, COLORS.petal);
+      }
+      ctx.restore();
+    }
+  }
+
+  if (state.style === 'harvest') {
+    for (const [wx, scale] of [
+      [-245, 1],
+      [255, 0.9],
+    ] as const) {
+      const p = worldToScreen(state.camera, wx, ground + 575 * u, layout.width, layout.focusY);
+      ctx.save();
+      ctx.translate(p.x, p.y);
+      ctx.scale(scale * state.camera.zoom, scale * state.camera.zoom);
+      inkEllipse(ctx, 0, 0, 24, 16, COLORS.honeyDeep, {
+        stroke: state.palette.woodDeep,
+        width: 2,
+        seed: 731 + wx,
+      });
+      inkEllipse(ctx, 0, -8, 20, 13, COLORS.honey, { width: 0 });
+      inkLine(ctx, [{ x: 0, y: -18 }, { x: 0, y: -30 }], {
+        stroke: state.palette.grassDeep,
+        width: 3,
+        seed: 741 + wx,
+        wobble: 0.2,
+      });
+      ctx.restore();
+    }
+  }
+
+  if (state.style === 'frost') {
+    for (const [wx, color] of [
+      [-230, COLORS.berry],
+      [240, COLORS.mint],
+    ] as const) {
+      const p = worldToScreen(state.camera, wx, ground + 590 * u, layout.width, layout.focusY);
+      ctx.save();
+      ctx.translate(p.x, p.y);
+      ctx.scale(state.camera.zoom, state.camera.zoom);
+      inkRoundRect(ctx, -18, -22, 36, 30, 6, color, {
+        stroke: state.palette.woodDeep,
+        width: 2,
+        seed: 751 + wx,
+      });
+      inkLine(ctx, [{ x: -12, y: -22 }, { x: 0, y: -8 }, { x: 12, y: -22 }], {
+        stroke: COLORS.gold,
+        width: 2.4,
+        seed: 761 + wx,
+        wobble: 0.1,
+      });
+      ctx.restore();
+    }
+  }
+}
+
+function drawFacilityWithOverlay(
+  ctx: CanvasRenderingContext2D,
+  layout: TownLayout,
+  state: TownViewState,
+  facility: TownFacilityLayout,
+): void {
+  const screen = worldToScreen(
+    state.camera,
+    facility.base.x,
+    facility.base.y,
+    layout.width,
+    layout.focusY,
+  );
+  if (screen.x < -260 || screen.x > layout.width + 260) return;
+  state.art.drawFacility(ctx, layout, state.camera, facility, state.phase);
+  const scale = facility.scale * state.camera.zoom;
+  ctx.save();
+  ctx.translate(screen.x, screen.y);
+  ctx.scale(scale, scale);
+  // 库房没有「可游玩」徽章，只有招牌、夜灯与纸纹。
+  drawFacilityOverlay(ctx, facility, state.palette, state.time, !state.sceneMotion);
+  ctx.restore();
+}
+
 export function drawTown(
   ctx: CanvasRenderingContext2D,
   layout: TownLayout,
@@ -524,8 +711,11 @@ export function drawTown(
   state.art.drawSky(ctx, layout, state.phase);
   state.art.drawGround(ctx, layout, state.camera, state.phase);
 
-  const buildings = [...layout.buildings].sort((a, b) => a.depth - b.depth);
-  for (const building of buildings) drawBuildingWithOverlay(ctx, layout, state, building);
+  const structures = [...layout.structures].sort((a, b) => a.depth - b.depth);
+  for (const structure of structures) {
+    if (structure.kind === 'venue') drawBuildingWithOverlay(ctx, layout, state, structure);
+    else drawFacilityWithOverlay(ctx, layout, state, structure);
+  }
 
   drawFountain(ctx, layout, state);
 
@@ -553,6 +743,7 @@ export function drawTown(
     drawResident(ctx, layout, state, resident);
   }
 
+  drawStyleDecor(ctx, layout, state);
   drawForeground(ctx, layout, state);
 
   if (state.palette.night) {

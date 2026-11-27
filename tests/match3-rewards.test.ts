@@ -1,5 +1,10 @@
 import { describe, expect, it } from 'vitest';
-import { chestCoinsFor, liveRoundCoins, roundReward } from '../src/games/match3/systems/rewards';
+import {
+  chestCoinsFor,
+  endlessReward,
+  liveRoundCoins,
+  roundReward,
+} from '../src/games/match3/systems/rewards';
 
 describe('match3 coin rewards', () => {
   it('opens chests at 33/66/100 percent', () => {
@@ -14,11 +19,10 @@ describe('match3 coin rewards', () => {
     expect(liveRoundCoins(3000, 3000)).toBeGreaterThan(liveRoundCoins(1000, 3000));
   });
 
-  it('adds first-clear, three-star and daily bonuses only on a win', () => {
+  it('adds first-clear and three-star bonuses only on a win', () => {
     const win = roundReward({
       score: 3000,
       target: 3000,
-      daily: false,
       firstClear: true,
       stars: 3,
       won: true,
@@ -30,14 +34,12 @@ describe('match3 coin rewards', () => {
     const lose = roundReward({
       score: 3000,
       target: 3000,
-      daily: true,
       firstClear: true,
       stars: 3,
       won: false,
     });
     expect(lose.firstClear).toBe(0);
     expect(lose.threeStar).toBe(0);
-    expect(lose.daily).toBe(0);
     expect(lose.participation).toBe(3);
   });
 
@@ -45,11 +47,16 @@ describe('match3 coin rewards', () => {
     const reward = roundReward({
       score: 999999,
       target: 3000,
-      daily: false,
       firstClear: false,
       stars: 1,
       won: true,
     });
     expect(reward.scoreCoins).toBe(18);
+  });
+
+  it('pays endless runs by score with a hard cap', () => {
+    expect(endlessReward(0)).toBe(4);
+    expect(endlessReward(1500)).toBe(14);
+    expect(endlessReward(99999)).toBe(60);
   });
 });

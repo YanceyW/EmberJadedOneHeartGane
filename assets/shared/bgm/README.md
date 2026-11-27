@@ -7,7 +7,7 @@
 | `assets/shared/bgm/lobby.mp3` | 大厅循环 BGM | 主包 |
 | `assets/games/match3/bgm.mp3` | 王都三消 | 分包 |
 | `assets/games/garden/bgm.mp3` | 王都花园 | 分包 |
-| `assets/games/merge/bgm.mp3` | 甜品合成屋 | 分包 |
+| `assets/games/merge/bgm.mp3` | 王都加工屋 | 分包 |
 | `assets/games/aquarium/bgm.mp3` | 王都水族馆 | 分包 |
 
 规格：**30–45 秒可循环、96kbps、单声道 mp3**（约 250–350KB/首）。

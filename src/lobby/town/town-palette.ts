@@ -1,4 +1,5 @@
 import { COLORS, TOWN_COLORS, TOWN_PHASES, TownPhaseColors } from '../../shared/design-system/tokens';
+import { stylePalette } from '../themes';
 
 export type TownPhase = 'dawn' | 'day' | 'dusk' | 'night';
 
@@ -27,8 +28,8 @@ export function townPhaseAt(hour: number): TownPhase {
   return 'dusk';
 }
 
-export function townPalette(phase: TownPhase): TownPalette {
-  const colors = TOWN_PHASES[phase];
+export function townPalette(phase: TownPhase, style = 'classic'): TownPalette {
+  const colors = stylePalette(TOWN_PHASES[phase], phase, style);
   return {
     ...colors,
     phase,

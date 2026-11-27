@@ -5,7 +5,7 @@ import { PinchEvent, PointerPoint } from '../core/input/input';
 import { hashString } from '../core/rng';
 import { Renderer } from '../core/render/renderer';
 import { Scene } from '../core/scene/scene';
-import { drawText, drawWangduCoin, pointInRect, Rect } from '../shared/design-system/draw';
+import { drawPetal, drawText, drawWangduCoin, pointInRect, Rect } from '../shared/design-system/draw';
 import { drawRoyalPair, RoyalMood, RoyalOutfitId } from '../shared/design-system/royals';
 import { COLORS, FONT, RADIUS } from '../shared/design-system/tokens';
 import {
@@ -36,20 +36,43 @@ import {
   BUILD_TRACKS,
   buyOrEquipIcon,
   buyOrEquipOutfit,
+  buyOrEquipStyle,
+  buyOrEquipTile,
   ICON_STYLES,
   nextBuildCost,
   OUTFITS,
+  selectBuildTrackLevel,
+  selectWeather,
   ShopResult,
   upgradeBuildTrack,
 } from './shop';
-import { computeTownLayout, isOverRoyal, TownLayout, townBuildingAt } from './town/town-layout';
+import { findStyle, findWeather, STYLES, WEATHERS } from './themes';
+import { drawWeather } from './weather';
+import { computeTownLayout, isOverRoyal, TownLayout, townStructureAt } from './town/town-layout';
 import { townPalette, townPhaseAt } from './town/town-palette';
 import { drawTown } from './town/town-view';
 import { generateNameCandidates } from '../shared/content/player-names';
-import { GAMES } from '../shared/content/games-manifest.generated';
+import { compactNumber } from '../shared/format';
+import {
+  LEADERBOARD_TABS,
+  MATCH3_CAMPAIGN_BOARD,
+  MATCH3_ENDLESS_BOARD,
+} from '../shared/content/leaderboards';
+import { TILE_SKINS } from '../shared/content/tile-skins';
+import { drawStoragePanel, StorageHit, StorageTarget } from './storage';
+import { drawDailyPanel, DailyTarget } from './daily';
+import {
+  DailyOrderDef,
+  DAILY_CLEAR_COINS,
+  DAILY_CLEAR_PROSPERITY,
+  DAILY_ORDER_COUNT,
+  dayKey,
+  pickDailyOrders,
+} from '../shared/content/daily-orders';
+import { GoodsKind, INGREDIENTS, sellSelection } from '../shared/content/ingredients';
 
-type Modal = 'settings' | 'privacy' | 'rank' | 'shop' | 'name' | null;
-type ShopTab = 'build' | 'outfit' | 'icon';
+type Modal = 'settings' | 'privacy' | 'rank' | 'shop' | 'name' | 'storage' | 'daily' | null;
+type ShopTab = 'build' | 'outfit' | 'weather' | 'style' | 'icon' | 'tile';
 type NavId = 'rank' | 'daily' | 'collection' | 'shop';
 
 interface NavItem {
@@ -59,9 +82,10 @@ interface NavItem {
 }
 
 interface ShopHit {
-  kind: 'tab' | 'build' | 'outfit' | 'icon' | 'close';
+  kind: 'tab' | 'build' | 'build-level' | 'outfit' | 'weather' | 'style' | 'icon' | 'tile' | 'close';
   id: string;
   rect: Rect;
+  level?: number;
 }
 
 interface NameHit {
@@ -93,6 +117,8 @@ function resultMessage(result: ShopResult): string {
       return '王都币不够，再玩一局吧';
     case 'maxed':
       return '已经满级啦';
+    case 'locked':
+      return '这个皮肤要在对应玩法里解锁';
     default:
       return '这件装扮暂时不可用';
   }
@@ -155,11 +181,17 @@ export class LobbyScene implements Scene {
   private privacyCloseRect: Rect = { x: 0, y: 0, w: 0, h: 0 };
   private rankCloseRect: Rect = { x: 0, y: 0, w: 0, h: 0 };
   private rankTabs: RankTab[] = [];
-  private rankGameId = 'match3';
+  private rankGameId = MATCH3_CAMPAIGN_BOARD;
   private rankRequestId = 0;
   private rankLoading = false;
   private rankEntries: LeaderboardEntry[] = [];
   private rankMessage = '';
+
+  private storageTab: GoodsKind = 'crop';
+  private storageSelected: string[] = [];
+  private storageTargets: StorageTarget[] = [];
+  private dailyTargets: DailyTarget[] = [];
+  private dailyOrders: readonly DailyOrderDef[] = [];
 
   constructor(private readonly services: AppServices) {
     this.layout = computeTownLayout(
@@ -183,6 +215,7 @@ export class LobbyScene implements Scene {
       this.phase,
       this.services.quality.tier,
       this.services.quality.allowTextureDetail,
+      this.services.profile.get().cosmetics.style,
     );
   }
 
@@ -202,6 +235,7 @@ export class LobbyScene implements Scene {
         this.phase,
         this.services.quality.tier,
         this.services.quality.allowTextureDetail,
+        this.services.profile.get().cosmetics.style,
       );
     }
     if (this.phaseFlash > 0) this.phaseFlash = Math.max(0, this.phaseFlash - dt * 4.2);
@@ -217,14 +251,15 @@ export class LobbyScene implements Scene {
 
   private layoutDock(): void {
     const dock = this.layout.dockRect;
-    const gap = 10;
-    const itemW = (dock.w - gap * 3) / 4;
+    const gap = 8;
+    // 场馆入口都在王都街道上；Dock 只放全局功能，避免大厅失去意义。
     const labels: Array<[NavId, string]> = [
       ['rank', '排行榜'],
-      ['daily', '每日委托'],
+      ['daily', '每日'],
       ['collection', '收集册'],
       ['shop', '王都小铺'],
     ];
+    const itemW = (dock.w - gap * (labels.length - 1)) / labels.length;
     this.navs = labels.map(([id, label], index) => ({
       id,
       label,
@@ -264,17 +299,21 @@ export class LobbyScene implements Scene {
   render(renderer: Renderer): void {
     const ctx = renderer.ctx;
     const profile = this.services.profile.get();
-    const palette = townPalette(this.phase);
+    const style = findStyle(profile.cosmetics.style)?.id ?? 'classic';
+    const weather = findWeather(profile.cosmetics.weather)?.id ?? 'clear';
+    const palette = townPalette(this.phase, style);
     this.art.ensure(
       this.layout,
       this.phase,
       this.services.quality.tier,
       this.services.quality.allowTextureDetail,
+      style,
     );
 
     drawTown(ctx, this.layout, {
       palette,
       phase: this.phase,
+      style,
       camera: this.camera,
       art: this.art,
       time: this.pulse,
@@ -290,6 +329,14 @@ export class LobbyScene implements Scene {
     });
 
     this.ambient.draw(ctx);
+    drawWeather(ctx, {
+      weather,
+      width: this.layout.width,
+      height: this.layout.height,
+      time: this.pulse,
+      quality: this.services.quality.tier,
+      reducedMotion: this.services.quality.reducedMotion,
+    });
 
     if (this.phaseFlash > 0.001) {
       ctx.save();
@@ -331,6 +378,8 @@ export class LobbyScene implements Scene {
     if (this.modal === 'rank') this.drawRank(ctx, renderer.width, renderer.height);
     if (this.modal === 'shop') this.drawShop(ctx, renderer.width, renderer.height);
     if (this.modal === 'name') this.drawNamePicker(ctx, renderer.width, renderer.height);
+    if (this.modal === 'storage') this.drawStorage(ctx, renderer.width, renderer.height);
+    if (this.modal === 'daily') this.drawDaily(ctx, renderer.width, renderer.height);
   }
 
   onTap(x: number, y: number): void {
@@ -366,6 +415,14 @@ export class LobbyScene implements Scene {
       this.handleNameTap(x, y);
       return;
     }
+    if (this.modal === 'storage') {
+      this.handleStorageTap(x, y);
+      return;
+    }
+    if (this.modal === 'daily') {
+      this.handleDailyTap(x, y);
+      return;
+    }
 
     if (pointInRect(x, y, this.settingsRect)) {
       this.services.feedback.tap();
@@ -392,7 +449,14 @@ export class LobbyScene implements Scene {
       return;
     }
 
-    const building = townBuildingAt(this.layout, world.x, world.y);
+    const structure = townStructureAt(this.layout, world.x, world.y);
+    if (structure && structure.kind === 'facility') {
+      this.services.feedback.tap();
+      this.ambient.burst('sparkle', x, y, 0.7);
+      this.openStorage();
+      return;
+    }
+    const building = structure ? structure.building : null;
     if (building) {
       if (building.entry.status === 'playable') {
         this.services.feedback.tap();
@@ -427,7 +491,7 @@ export class LobbyScene implements Scene {
     this.lastDrag = null;
     this.pinchBaseZoom = null;
     const world = screenToWorld(this.camera, point.x, point.y, this.layout.width, this.layout.focusY);
-    if (townBuildingAt(this.layout, world.x, world.y)) this.services.feedback.press();
+    if (townStructureAt(this.layout, world.x, world.y)) this.services.feedback.press();
   }
 
   onDrag(point: PointerPoint): void {
@@ -477,8 +541,146 @@ export class LobbyScene implements Scene {
       this.openShop(this.shopTab);
       return;
     }
+    if (id === 'daily') {
+      this.services.feedback.tap();
+      this.openDaily();
+      return;
+    }
     this.services.feedback.invalid();
-    this.showToast(`${id === 'daily' ? '每日委托' : '收集册'}即将开放`);
+    this.showToast('收集册即将开放');
+  }
+
+  private openStorage(): void {
+    this.modal = 'storage';
+    this.storageSelected = [];
+    this.storageTargets = [];
+    this.services.analytics.track('storage_open', { from: 'building' });
+  }
+
+  private handleStorageTap(x: number, y: number): void {
+    const hit = this.findTarget<StorageHit>(this.storageTargets, x, y);
+    if (!hit) return;
+    const profile = this.services.profile;
+    if (hit.kind === 'close') {
+      this.services.feedback.tap();
+      this.modal = null;
+      this.storageTargets = [];
+      return;
+    }
+    if (hit.kind === 'tab') {
+      this.services.feedback.tap();
+      this.storageTab = hit.tab;
+      return;
+    }
+    if (hit.kind === 'clear') {
+      this.services.feedback.tap();
+      this.storageSelected = [];
+      return;
+    }
+    if (hit.kind === 'select-all') {
+      this.services.feedback.select();
+      const ids = INGREDIENTS.filter(
+        (item) => item.kind === this.storageTab && (profile.pantry()[item.id] ?? 0) > 0,
+      ).map((item) => item.id);
+      this.storageSelected = ids;
+      return;
+    }
+    if (hit.kind === 'goods') {
+      this.services.feedback.tap();
+      this.storageSelected = this.storageSelected.includes(hit.id)
+        ? this.storageSelected.filter((id) => id !== hit.id)
+        : [...this.storageSelected, hit.id];
+      return;
+    }
+    // sell
+    const result = sellSelection(profile.pantry(), this.storageSelected);
+    if (result.count <= 0) {
+      this.services.feedback.invalid();
+      return;
+    }
+    profile.addCoins(result.coins);
+    profile.save();
+    this.storageSelected = [];
+    this.services.feedback.reward();
+    this.showToast(`卖出 ${result.count} 件货物，+${compactNumber(result.coins)} 王都币`);
+  }
+
+  private openDaily(): void {
+    this.modal = 'daily';
+    this.dailyTargets = [];
+    const state = this.services.profile.dailySync();
+    this.dailyOrders = pickDailyOrders(state.date || dayKey(Date.now()));
+    this.services.analytics.track('daily_open', { claimed: state.claimed.length });
+  }
+
+  private handleDailyTap(x: number, y: number): void {
+    const hit = this.findTarget<{ kind: 'close' | 'claim'; id?: string }>(this.dailyTargets, x, y);
+    if (!hit) return;
+    if (hit.kind === 'close') {
+      this.services.feedback.tap();
+      this.modal = null;
+      this.dailyTargets = [];
+      return;
+    }
+    const order = this.dailyOrders.find((item) => item.id === hit.id);
+    if (!order) return;
+    const profile = this.services.profile;
+    const state = profile.dailySync();
+    if (state.claimed.includes(order.id)) return;
+    if (!profile.takePantry(order.needs)) {
+      this.services.feedback.invalid();
+      this.showToast('仓库里的货物还不够，先去农场或厨房做一点');
+      return;
+    }
+    profile.addCoins(order.coins);
+    profile.addProsperity(order.prosperity);
+    const next = profile.markDailyClaimed(order.id);
+    const cleared = next.claimed.length >= DAILY_ORDER_COUNT;
+    if (cleared) {
+      profile.addCoins(DAILY_CLEAR_COINS);
+      profile.addProsperity(DAILY_CLEAR_PROSPERITY);
+    }
+    profile.save();
+    this.services.feedback.reward();
+    this.showToast(
+      cleared
+        ? `${order.title}完成，全清 +${order.coins + DAILY_CLEAR_COINS} 王都币`
+        : `${order.title}完成，+${order.coins} 王都币`,
+    );
+  }
+
+  private findTarget<T>(targets: Array<{ hit: T; rect: Rect }>, x: number, y: number): T | null {
+    for (const target of targets) {
+      if (pointInRect(x, y, target.rect)) return target.hit;
+    }
+    return null;
+  }
+
+  private drawStorage(ctx: CanvasRenderingContext2D, width: number, height: number): void {
+    const profile = this.services.profile.get();
+    this.storageTargets = drawStoragePanel(ctx, width, height, {
+      coins: profile.coins,
+      prosperity: profile.prosperity,
+      pantry: profile.pantry,
+      selected: this.storageSelected,
+      tab: this.storageTab,
+    });
+  }
+
+  private drawDaily(ctx: CanvasRenderingContext2D, width: number, height: number): void {
+    const profile = this.services.profile.get();
+    const state = profile.daily;
+    if (this.dailyOrders.length === 0) {
+      this.dailyOrders = pickDailyOrders(state.date || dayKey(Date.now()));
+    }
+    this.dailyTargets = drawDailyPanel(ctx, width, height, {
+      coins: profile.coins,
+      prosperity: profile.prosperity,
+      pantry: profile.pantry,
+      orders: this.dailyOrders,
+      claimed: state.claimed,
+      streak: state.streak,
+    });
   }
 
   private royalMood(): RoyalMood {
@@ -509,8 +711,21 @@ export class LobbyScene implements Scene {
       let result: ShopResult;
       if (hit.kind === 'build') {
         result = upgradeBuildTrack(profile, hit.id as 'fountain' | 'lights' | 'garden');
+      } else if (hit.kind === 'build-level') {
+        result = selectBuildTrackLevel(
+          profile,
+          hit.id as 'fountain' | 'lights' | 'garden',
+          hit.level ?? 0,
+        );
       } else if (hit.kind === 'outfit') {
         result = buyOrEquipOutfit(profile, hit.id);
+      } else if (hit.kind === 'weather') {
+        result = selectWeather(profile, hit.id);
+      } else if (hit.kind === 'style') {
+        result = buyOrEquipStyle(profile, hit.id);
+        if (result === 'bought' || result === 'equipped') this.art.invalidate();
+      } else if (hit.kind === 'tile') {
+        result = buyOrEquipTile(profile, hit.id);
       } else {
         result = buyOrEquipIcon(profile, hit.id);
       }
@@ -554,7 +769,10 @@ export class LobbyScene implements Scene {
     const tabs: Array<[ShopTab, string]> = [
       ['build', '建设'],
       ['outfit', '装扮'],
+      ['weather', '天气'],
+      ['style', '风格'],
       ['icon', '图标'],
+      ['tile', '方块'],
     ];
     const tabRects = drawSegmented(
       ctx,
@@ -569,7 +787,10 @@ export class LobbyScene implements Scene {
 
     if (this.shopTab === 'build') this.drawBuildTab(ctx, panel);
     else if (this.shopTab === 'outfit') this.drawOutfitTab(ctx, panel);
-    else this.drawIconTab(ctx, panel);
+    else if (this.shopTab === 'weather') this.drawWeatherTab(ctx, panel);
+    else if (this.shopTab === 'style') this.drawStyleTab(ctx, panel);
+    else if (this.shopTab === 'icon') this.drawIconTab(ctx, panel);
+    else this.drawTileTab(ctx, panel);
 
     const close = { x: panel.x + 32, y: panel.y + panel.h - 70, w: panel.w - 64, h: 50 };
     drawStickerButton(ctx, close, '关闭', { fontSize: FONT.body, seed: 823 });
@@ -577,13 +798,13 @@ export class LobbyScene implements Scene {
   }
 
   private drawBuildTab(ctx: CanvasRenderingContext2D, panel: Rect): void {
-    const build = this.services.profile.get().cosmetics.build;
+    const state = this.services.profile.get().cosmetics;
     BUILD_TRACKS.forEach((track, index) => {
       const row = {
         x: panel.x + 24,
-        y: panel.y + 170 + index * 136,
+        y: panel.y + 166 + index * 140,
         w: panel.w - 48,
-        h: 124,
+        h: 128,
       };
       inkRoundRect(ctx, row.x, row.y, row.w, row.h, RADIUS.lg, 'rgba(255,253,248,0.8)', {
         stroke: 'rgba(58,46,42,0.14)',
@@ -595,29 +816,62 @@ export class LobbyScene implements Scene {
         weight: '700',
         color: COLORS.ink,
       });
-      drawText(ctx, track.description, row.x + 20, row.y + 58, {
-        size: 15,
+      drawText(ctx, track.description, row.x + 20, row.y + 56, {
+        size: 14,
         color: COLORS.inkSoft,
-        maxWidth: row.w - 180,
+        maxWidth: row.w - 220,
       });
 
-      const level = build[track.id];
-      for (let i = 0; i < 3; i += 1) {
-        ctx.beginPath();
-        ctx.arc(row.x + 28 + i * 20, row.y + 88, 6, 0, Math.PI * 2);
-        ctx.fillStyle = i < level ? COLORS.jade : 'rgba(58,46,42,0.16)';
-        ctx.fill();
+      const level = state.build[track.id];
+      const max = state.buildMax[track.id];
+      for (let i = 0; i < 4; i += 1) {
+        const unlocked = i <= max;
+        const selected = i === level;
+        const pill = { x: row.x + 20 + i * 40, y: row.y + 78, w: 34, h: 30 };
+        inkRoundRect(
+          ctx,
+          pill.x,
+          pill.y,
+          pill.w,
+          pill.h,
+          9,
+          selected ? COLORS.jade : unlocked ? 'rgba(168,230,207,0.55)' : 'rgba(58,46,42,0.07)',
+          {
+            stroke: selected ? COLORS.teal : 'rgba(58,46,42,0.14)',
+            width: selected ? 2 : 1.2,
+            seed: 829 + index * 7 + i,
+          },
+        );
+        drawText(ctx, `${i}`, pill.x + pill.w / 2, pill.y + 15, {
+          size: 14,
+          weight: '700',
+          color: selected ? COLORS.paper : unlocked ? COLORS.ink : 'rgba(58,46,42,0.28)',
+          align: 'center',
+        });
+        if (unlocked) {
+          this.shopHits.push({
+            kind: 'build-level',
+            id: track.id,
+            level: i,
+            rect: { x: pill.x - 2, y: pill.y - 6, w: pill.w + 4, h: pill.h + 12 },
+          });
+        }
       }
-      drawText(ctx, track.levelNames[level], row.x + 92, row.y + 88, {
-        size: 16,
+      drawText(ctx, `展示：${track.levelNames[level]}`, row.x + 190, row.y + 92, {
+        size: 15,
         color: COLORS.jade,
         weight: '700',
+        maxWidth: row.w - 330,
+      });
+      drawText(ctx, `已解锁 Lv.${max}`, row.x + 190, row.y + 112, {
+        size: 12,
+        color: COLORS.inkSoft,
       });
 
-      const cost = nextBuildCost(track, level);
+      const cost = nextBuildCost(track, max);
       const button = {
         x: row.x + row.w - 134,
-        y: row.y + 72,
+        y: row.y + 76,
         w: 112,
         h: 44,
       };
@@ -632,6 +886,188 @@ export class LobbyScene implements Scene {
       if (cost !== null) {
         this.shopHits.push({ kind: 'build', id: track.id, rect: button });
       }
+    });
+  }
+
+  private drawWeatherTab(ctx: CanvasRenderingContext2D, panel: Rect): void {
+    const active = this.services.profile.get().cosmetics.weather;
+    const cardW = (panel.w - 64) / 2;
+    WEATHERS.forEach((weather, index) => {
+      const col = index % 2;
+      const rowIndex = Math.floor(index / 2);
+      const card = {
+        x: panel.x + 24 + col * (cardW + 16),
+        y: panel.y + 170 + rowIndex * 196,
+        w: cardW,
+        h: 180,
+      };
+      const equipped = active === weather.id;
+      inkRoundRect(
+        ctx,
+        card.x,
+        card.y,
+        card.w,
+        card.h,
+        RADIUS.lg,
+        equipped ? 'rgba(168,230,207,0.34)' : 'rgba(255,253,248,0.82)',
+        {
+          stroke: equipped ? 'rgba(47,143,123,0.55)' : 'rgba(58,46,42,0.14)',
+          width: equipped ? 2.4 : 1.8,
+          seed: 871 + index,
+        },
+      );
+      const cx = card.x + card.w / 2;
+      this.drawWeatherPreview(ctx, weather.id, cx, card.y + 62, 34);
+      drawText(ctx, weather.name, card.x + 18, card.y + 112, {
+        size: FONT.body,
+        weight: '700',
+        color: COLORS.ink,
+      });
+      drawText(ctx, weather.description, card.x + 18, card.y + 140, {
+        size: 14,
+        color: COLORS.inkSoft,
+        maxWidth: card.w - 36,
+      });
+      drawText(ctx, equipped ? '使用中' : '免费使用', card.x + 18, card.y + 166, {
+        size: 15,
+        color: equipped ? COLORS.jade : COLORS.honeyDeep,
+        weight: '700',
+      });
+      this.shopHits.push({ kind: 'weather', id: weather.id, rect: card });
+    });
+  }
+
+  private drawWeatherPreview(
+    ctx: CanvasRenderingContext2D,
+    id: string,
+    cx: number,
+    cy: number,
+    size: number,
+  ): void {
+    ctx.save();
+    ctx.strokeStyle = COLORS.ink;
+    ctx.lineWidth = 2;
+    if (id === 'clear') {
+      ctx.fillStyle = COLORS.gold;
+      ctx.beginPath();
+      ctx.arc(cx, cy, size * 0.5, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.stroke();
+    } else if (id === 'rain') {
+      ctx.fillStyle = COLORS.sky;
+      ctx.beginPath();
+      ctx.arc(cx - 14, cy, 18, 0, Math.PI * 2);
+      ctx.arc(cx + 8, cy - 8, 22, 0, Math.PI * 2);
+      ctx.arc(cx + 24, cy + 4, 15, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.strokeStyle = COLORS.waterDeep;
+      for (let i = -1; i <= 1; i += 1) {
+        ctx.beginPath();
+        ctx.moveTo(cx + i * 16, cy + 22);
+        ctx.lineTo(cx + i * 16 - 5, cy + 34);
+        ctx.stroke();
+      }
+    } else if (id === 'snow') {
+      ctx.strokeStyle = COLORS.waterDeep;
+      for (let i = 0; i < 3; i += 1) {
+        const a = (Math.PI * i) / 3;
+        ctx.beginPath();
+        ctx.moveTo(cx - Math.cos(a) * 24, cy - Math.sin(a) * 24);
+        ctx.lineTo(cx + Math.cos(a) * 24, cy + Math.sin(a) * 24);
+        ctx.stroke();
+      }
+      ctx.fillStyle = COLORS.paper;
+      for (let i = 0; i < 3; i += 1) drawPetal(ctx, cx - 20 + i * 20, cy + 34, 5, COLORS.paper);
+    } else {
+      for (let i = 0; i < 5; i += 1) {
+        drawPetal(ctx, cx - 24 + i * 12, cy - 8 + (i % 2) * 18, 10, COLORS.petal);
+      }
+    }
+    ctx.restore();
+  }
+
+  private drawStyleTab(ctx: CanvasRenderingContext2D, panel: Rect): void {
+    const state = this.services.profile.get().cosmetics;
+    const cardW = (panel.w - 64) / 2;
+    STYLES.forEach((style, index) => {
+      const col = index % 2;
+      const rowIndex = Math.floor(index / 2);
+      const card = {
+        x: panel.x + 24 + col * (cardW + 16),
+        y: panel.y + 170 + rowIndex * 140,
+        w: cardW,
+        h: 126,
+      };
+      const owned = state.ownedStyles.includes(style.id);
+      const equipped = state.style === style.id;
+      inkRoundRect(
+        ctx,
+        card.x,
+        card.y,
+        card.w,
+        card.h,
+        RADIUS.lg,
+        equipped ? 'rgba(242,193,78,0.24)' : 'rgba(255,253,248,0.82)',
+        {
+          stroke: equipped ? 'rgba(185,134,47,0.55)' : 'rgba(58,46,42,0.14)',
+          width: equipped ? 2.4 : 1.8,
+          seed: 891 + index,
+        },
+      );
+      style.swatches.forEach((color, swatchIndex) => {
+        ctx.beginPath();
+        ctx.arc(card.x + 24 + swatchIndex * 24, card.y + 28, 9, 0, Math.PI * 2);
+        ctx.fillStyle = color;
+        ctx.fill();
+        ctx.strokeStyle = 'rgba(58,46,42,0.18)';
+        ctx.lineWidth = 1.5;
+        ctx.stroke();
+      });
+      const preview = { x: card.x + card.w - 102, y: card.y + 14, w: 86, h: 58 };
+      inkRoundRect(ctx, preview.x, preview.y, preview.w, preview.h, 10, style.swatches[0], {
+        stroke: 'rgba(58,46,42,0.18)',
+        width: 1.4,
+        seed: 901 + index,
+      });
+      inkRoundRect(
+        ctx,
+        preview.x + 2,
+        preview.y + 34,
+        preview.w - 4,
+        22,
+        8,
+        style.swatches[2],
+        { width: 0 },
+      );
+      ctx.beginPath();
+      ctx.moveTo(preview.x + 24, preview.y + 38);
+      ctx.lineTo(preview.x + 42, preview.y + 22);
+      ctx.lineTo(preview.x + 62, preview.y + 38);
+      ctx.closePath();
+      ctx.fillStyle = style.swatches[1];
+      ctx.fill();
+      inkRoundRect(ctx, preview.x + 34, preview.y + 38, 18, 16, 3, COLORS.paper, { width: 0 });
+      ctx.beginPath();
+      ctx.arc(preview.x + 72, preview.y + 16, 6, 0, Math.PI * 2);
+      ctx.fillStyle = COLORS.gold;
+      ctx.fill();
+      drawText(ctx, style.name, card.x + 16, card.y + 58, {
+        size: FONT.body,
+        weight: '700',
+        color: COLORS.ink,
+      });
+      drawText(ctx, style.description, card.x + 16, card.y + 82, {
+        size: 13,
+        color: COLORS.inkSoft,
+        maxWidth: card.w - 122,
+      });
+      const status = equipped ? '使用中' : owned ? '点击使用' : `${style.price} 王都币`;
+      drawText(ctx, status, card.x + 16, card.y + 108, {
+        size: 15,
+        color: equipped ? COLORS.jade : owned ? COLORS.inkSoft : COLORS.honeyDeep,
+        weight: '700',
+      });
+      this.shopHits.push({ kind: 'style', id: style.id, rect: card });
     });
   }
 
@@ -747,6 +1183,88 @@ export class LobbyScene implements Scene {
         weight: '700',
       });
       this.shopHits.push({ kind: 'icon', id: icon.id, rect: card });
+    });
+  }
+
+  private drawTileTab(ctx: CanvasRenderingContext2D, panel: Rect): void {
+    const state = this.services.profile.get().cosmetics;
+    const cardW = (panel.w - 48 - 12) / 2;
+    const cardH = 220;
+    TILE_SKINS.forEach((skin, index) => {
+      const col = index % 2;
+      const row = Math.floor(index / 2);
+      const card = {
+        x: panel.x + 24 + col * (cardW + 12),
+        y: panel.y + 170 + row * (cardH + 10),
+        w: cardW,
+        h: cardH,
+      };
+      const owned = state.ownedTiles.includes(skin.id);
+      const equipped = state.tileStyle === skin.id;
+      inkRoundRect(
+        ctx,
+        card.x,
+        card.y,
+        card.w,
+        card.h,
+        RADIUS.lg,
+        equipped ? 'rgba(242,193,78,0.22)' : 'rgba(255,253,248,0.82)',
+        {
+          stroke: equipped ? 'rgba(185,134,47,0.55)' : 'rgba(58,46,42,0.14)',
+          width: equipped ? 2.4 : 1.8,
+          seed: 861 + index,
+        },
+      );
+
+      const size = 30;
+      const gap = 4;
+      const stripW = skin.sprites.length * size + (skin.sprites.length - 1) * gap;
+      const stripX = card.x + (card.w - stripW) / 2;
+      skin.sprites.forEach((id, tileIndex) => {
+        const frame = this.services.atlas.frame(id);
+        ctx.drawImage(
+          frame.canvas,
+          frame.sx,
+          frame.sy,
+          frame.sw,
+          frame.sh,
+          stripX + tileIndex * (size + gap),
+          card.y + 44,
+          size,
+          size,
+        );
+      });
+
+      drawText(ctx, skin.name, card.x + card.w / 2, card.y + 116, {
+        size: FONT.body,
+        weight: '700',
+        color: COLORS.ink,
+        align: 'center',
+        maxWidth: card.w - 20,
+      });
+      drawText(ctx, skin.description, card.x + card.w / 2, card.y + 150, {
+        size: 13,
+        color: COLORS.inkSoft,
+        align: 'center',
+        maxWidth: card.w - 28,
+      });
+      const status = equipped
+        ? '使用中'
+        : owned
+          ? '点击使用'
+          : skin.unlockHint
+            ? skin.unlockHint
+            : skin.price > 0
+              ? `${skin.price} 王都币`
+              : '免费';
+      drawText(ctx, status, card.x + card.w / 2, card.y + 192, {
+        size: 14,
+        color: equipped ? COLORS.jade : owned ? COLORS.inkSoft : COLORS.honeyDeep,
+        align: 'center',
+        maxWidth: card.w - 28,
+        weight: '700',
+      });
+      this.shopHits.push({ kind: 'tile', id: skin.id, rect: card });
     });
   }
 
@@ -1114,7 +1632,9 @@ export class LobbyScene implements Scene {
       this.rankEntries = entries;
       if (entries.length === 0) {
         this.rankMessage =
-          gameId === 'match3' ? '还没有人上榜，去玩一局吧' : '这个游戏还没有人上榜';
+          gameId === MATCH3_CAMPAIGN_BOARD || gameId === MATCH3_ENDLESS_BOARD
+            ? '还没有人上榜，去玩一局吧'
+            : '这个场馆还没有人上榜';
       }
     });
   }
@@ -1136,19 +1656,22 @@ export class LobbyScene implements Scene {
       weight: '700',
       color: COLORS.ink,
     });
-    drawText(ctx, '按游戏分类 · 每人只记最高分', panel.x + 40, panel.y + 98, {
-      size: 17,
+    drawText(ctx, '每人只记最高分 · 仅展示，不发王都币', panel.x + 40, panel.y + 98, {
+      size: 16,
       color: COLORS.inkSoft,
     });
 
     const rankRects = drawSegmented(
       ctx,
-      { x: panel.x + 40, y: panel.y + 116, w: panel.w - 80, h: 40 },
-      GAMES.map((game) => game.title),
-      GAMES.findIndex((game) => game.id === this.rankGameId),
+      { x: panel.x + 28, y: panel.y + 116, w: panel.w - 56, h: 40 },
+      LEADERBOARD_TABS.map((tab) => tab.label),
+      LEADERBOARD_TABS.findIndex((tab) => tab.id === this.rankGameId),
       COLORS.jade,
     );
-    this.rankTabs = GAMES.map((game, index) => ({ id: game.id, rect: rankRects[index] }));
+    this.rankTabs = LEADERBOARD_TABS.map((tab, index) => ({
+      id: tab.id,
+      rect: rankRects[index],
+    }));
 
     if (this.rankLoading) {
       drawText(ctx, '正在加载…', width / 2, panel.y + 250, {
@@ -1199,7 +1722,7 @@ export class LobbyScene implements Scene {
           color: COLORS.ink,
           maxWidth: panel.w - 260,
         });
-        drawText(ctx, `${entry.score}`, panel.x + panel.w - 40, rowY, {
+        drawText(ctx, compactNumber(entry.score), panel.x + panel.w - 40, rowY, {
           size: FONT.subtitle,
           weight: '700',
           color: COLORS.jade,

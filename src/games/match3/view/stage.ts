@@ -1,10 +1,11 @@
 import {
-  drawPanel,
   drawStar,
   drawText,
   drawWangduCoin,
   fillRoundRect,
 } from '../../../shared/design-system/draw';
+import { inkLine, inkRoundRect } from '../../../shared/design-system/paint';
+import { drawPaperPanel } from '../../../shared/design-system/paper-ui';
 import { drawRoyalPair, RoyalMood, RoyalOutfitId } from '../../../shared/design-system/royals';
 import { COLORS, RADIUS } from '../../../shared/design-system/tokens';
 import { CHEST_TIERS, liveRoundCoins } from '../systems/rewards';
@@ -22,6 +23,8 @@ export interface Match3StageState {
   outfit: RoyalOutfitId;
   pulse: number;
   balance: number;
+  endless?: boolean;
+  liveCoins?: number;
 }
 
 function moodOf(state: Match3StageState): RoyalMood {
@@ -56,7 +59,12 @@ function miniBuilding(
   wall: string,
   roof: string,
 ): void {
-  fillRoundRect(ctx, { x, y: base - h, w, h }, wall, 10);
+  inkRoundRect(ctx, x, base - h, w, h, 10, wall, {
+    stroke: COLORS.ink,
+    width: 2,
+    seed: 961 + x,
+    wobble: 0.2,
+  });
   ctx.beginPath();
   ctx.moveTo(x - 8, base - h + 8);
   ctx.quadraticCurveTo(x + w / 2, base - h - 18, x + w + 8, base - h + 8);
@@ -65,25 +73,25 @@ function miniBuilding(
   ctx.closePath();
   ctx.fillStyle = roof;
   ctx.fill();
+  ctx.strokeStyle = COLORS.ink;
+  ctx.lineWidth = 2;
+  ctx.stroke();
 
-  fillRoundRect(
-    ctx,
-    { x: x + w * 0.18, y: base - h + 26, w: w * 0.28, h: h * 0.34 },
-    COLORS.sky,
-    5,
-  );
-  fillRoundRect(
-    ctx,
-    { x: x + w * 0.58, y: base - h + 26, w: w * 0.24, h: h * 0.34 },
-    COLORS.sky,
-    5,
-  );
-  fillRoundRect(
-    ctx,
-    { x: x + w * 0.4, y: base - h * 0.38, w: w * 0.22, h: h * 0.38 },
-    COLORS.honeyDeep,
-    5,
-  );
+  inkRoundRect(ctx, x + w * 0.18, base - h + 26, w * 0.28, h * 0.34, 5, COLORS.sky, {
+    stroke: COLORS.inkSoft,
+    width: 1.4,
+    seed: 971 + x,
+  });
+  inkRoundRect(ctx, x + w * 0.58, base - h + 26, w * 0.24, h * 0.34, 5, COLORS.sky, {
+    stroke: COLORS.inkSoft,
+    width: 1.4,
+    seed: 973 + x,
+  });
+  inkRoundRect(ctx, x + w * 0.4, base - h * 0.38, w * 0.22, h * 0.38, 5, COLORS.honeyDeep, {
+    stroke: COLORS.inkSoft,
+    width: 1.4,
+    seed: 975 + x,
+  });
 }
 
 function drawStageScene(
@@ -97,33 +105,82 @@ function drawStageScene(
   const base = panel.y + panel.h - 22;
   const top = panel.y + 224;
 
+  // 舞台内衬：让「王都共鸣」下半屏像一张纸雕小景，而不是空白面板。
+  inkRoundRect(
+    ctx,
+    panel.x + 18,
+    top - 8,
+    panel.w - 36,
+    base - top + 18,
+    18,
+    'rgba(191,227,242,0.32)',
+    { stroke: 'rgba(58,46,42,0.08)', width: 1.5, seed: 985, wobble: 0.2 },
+  );
   ctx.save();
-  ctx.globalAlpha = 0.32;
+  ctx.globalAlpha = 0.2;
+  ctx.fillStyle = COLORS.gold;
+  ctx.beginPath();
+  ctx.arc(panel.x + panel.w - 62, top + 78, 26, 0, Math.PI * 2);
+  ctx.fill();
+  ctx.globalAlpha = 0.68;
+  for (const [cx, cy, radius] of [
+    [panel.x + 92, top + 34, 24],
+    [panel.x + 128, top + 24, 30],
+    [panel.x + 170, top + 36, 20],
+    [panel.x + 66, top + 82, 24],
+    [panel.x + 100, top + 90, 17],
+    [right - 118, top + 44, 22],
+    [right - 84, top + 34, 28],
+    [right - 48, top + 46, 18],
+    [right - 170, top + 92, 18],
+  ] as const) {
+    ctx.fillStyle = COLORS.paper;
+    ctx.beginPath();
+    ctx.arc(cx, cy, radius, 0, Math.PI * 2);
+    ctx.fill();
+  }
+  ctx.restore();
+  for (let i = 0; i < 9; i += 1) {
+    const x = left + 44 + ((i * 71) % Math.max(1, right - left - 80));
+    const y = base + 16 + (i % 2) * 7;
+    drawStar(ctx, x, y, 4 + (i % 3), 1.8, i % 2 ? COLORS.petal : COLORS.gold);
+  }
+
+  ctx.save();
+  ctx.globalAlpha = 0.5;
+  ctx.fillStyle = COLORS.mint;
+  ctx.beginPath();
+  ctx.ellipse(panel.x + panel.w / 2, base - 2, panel.w * 0.55, 76, 0, 0, Math.PI * 2);
+  ctx.fill();
+  ctx.globalAlpha = 0.42;
   ctx.fillStyle = COLORS.grass;
   ctx.beginPath();
-  ctx.ellipse(panel.x + panel.w / 2, base - 2, panel.w * 0.44, 26, 0, 0, Math.PI * 2);
+  ctx.ellipse(panel.x + panel.w / 2, base + 8, panel.w * 0.6, 44, 0, 0, Math.PI * 2);
   ctx.fill();
   ctx.restore();
 
-  miniBuilding(ctx, right - 176, base, 48, 62, COLORS.mint, COLORS.berry);
-  miniBuilding(ctx, right - 116, base, 62, 88, COLORS.honey, COLORS.cream);
-  miniBuilding(ctx, right - 46, base, 42, 54, COLORS.sky, COLORS.waterDeep);
+  miniBuilding(ctx, right - 204, base, 64, 78, COLORS.mint, COLORS.berry);
+  miniBuilding(ctx, right - 132, base, 82, 108, COLORS.honey, COLORS.cream);
+  miniBuilding(ctx, right - 42, base, 56, 68, COLORS.sky, COLORS.waterDeep);
 
   // 小树
   for (const [x, h] of [
-    [left + 188, 34],
-    [right - 196, 28],
+    [left + 198, 42],
+    [right - 224, 34],
   ] as const) {
-    ctx.strokeStyle = COLORS.pathDeep;
-    ctx.lineWidth = 5;
-    ctx.beginPath();
-    ctx.moveTo(x, base);
-    ctx.lineTo(x, base - h);
-    ctx.stroke();
+    inkLine(ctx, [{ x, y: base }, { x, y: base - h }], {
+      stroke: COLORS.pathDeep,
+      width: 5,
+      seed: 981 + x,
+      wobble: 0.2,
+    });
     ctx.beginPath();
     ctx.arc(x, base - h - 8, 20, 0, Math.PI * 2);
     ctx.fillStyle = COLORS.leaf;
     ctx.fill();
+    ctx.strokeStyle = COLORS.ink;
+    ctx.lineWidth = 2;
+    ctx.stroke();
   }
 
   // 小喷泉：水柱高度跟随节奏。
@@ -197,7 +254,12 @@ export class Match3Stage {
       w: renderer.width - 72,
       h: Math.max(220, bottom - top),
     };
-    drawPanel(ctx, panel, { fill: COLORS.paper, radius: RADIUS.xl });
+    drawPaperPanel(ctx, panel, {
+      fill: COLORS.paper,
+      radius: RADIUS.xl,
+      stitch: true,
+      seed: 951,
+    });
 
     drawText(ctx, '王都共鸣', panel.x + 22, panel.y + 30, {
       size: 20,
@@ -209,7 +271,7 @@ export class Match3Stage {
       color: COLORS.inkSoft,
     });
 
-    const live = liveRoundCoins(state.score, state.target);
+    const live = state.liveCoins ?? liveRoundCoins(state.score, state.target);
     drawWangduCoin(ctx, panel.x + panel.w - 112, panel.y + 30, 12);
     drawText(ctx, `+${live}`, panel.x + panel.w - 94, panel.y + 30, {
       size: 18,
@@ -326,6 +388,15 @@ export class Match3Stage {
       color: COLORS.inkSoft,
       align: 'right',
     });
+
+    if (state.endless) {
+      drawText(ctx, '无时间限制模式：按本局分数结算王都币', rect.x + rect.w / 2, rect.y + 48, {
+        size: 14,
+        color: COLORS.inkSoft,
+        align: 'center',
+      });
+      return;
+    }
 
     CHEST_TIERS.forEach((tier, index) => {
       const x = rect.x + 52 + (index * (rect.w - 104)) / 2;

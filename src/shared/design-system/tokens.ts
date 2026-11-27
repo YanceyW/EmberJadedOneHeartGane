@@ -259,7 +259,7 @@ export const MOTION = {
   reward: 320,
 } as const;
 
-export type AccentKey = 'mint' | 'leaf' | 'honey' | 'sky';
+export type AccentKey = 'mint' | 'leaf' | 'honey' | 'sky' | 'peach';
 
 export interface Accent {
   main: string;
@@ -272,6 +272,7 @@ export const ACCENTS: Record<AccentKey, Accent> = {
   leaf: { main: COLORS.leaf, soft: '#D8F0CE', deep: '#456B3A' },
   honey: { main: COLORS.honey, soft: '#FCE7B8', deep: '#8A641F' },
   sky: { main: COLORS.water, soft: COLORS.sky, deep: '#2C6D86' },
+  peach: { main: COLORS.peach, soft: '#FFDDD2', deep: '#B85C48' },
 };
 
 export function accentOf(key: string): Accent {

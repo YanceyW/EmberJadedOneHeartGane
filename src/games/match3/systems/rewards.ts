@@ -7,7 +7,6 @@ export const CHEST_TIERS = [
 export interface RoundRewardInput {
   score: number;
   target: number;
-  daily: boolean;
   firstClear: boolean;
   stars: number;
   won: boolean;
@@ -19,8 +18,12 @@ export interface RoundReward {
   chests: number;
   firstClear: number;
   threeStar: number;
-  daily: number;
   total: number;
+}
+
+/** 无时间限制模式没有目标分，按本局分数给币；长局封顶，避免挂机刷币。 */
+export function endlessReward(score: number): number {
+  return 4 + Math.min(56, Math.floor(Math.max(0, score) / 150));
 }
 
 export function chestCoinsFor(score: number, target: number): number {
@@ -42,7 +45,6 @@ export function roundReward(input: RoundRewardInput): RoundReward {
   const chests = chestCoinsFor(input.score, input.target);
   const firstClear = input.won && input.firstClear ? 20 : 0;
   const threeStar = input.won && input.stars >= 3 ? 10 : 0;
-  const daily = input.won && input.daily ? 30 : 0;
 
   return {
     participation,
@@ -50,7 +52,6 @@ export function roundReward(input: RoundRewardInput): RoundReward {
     chests,
     firstClear,
     threeStar,
-    daily,
-    total: participation + scoreCoins + chests + firstClear + threeStar + daily,
+    total: participation + scoreCoins + chests + firstClear + threeStar,
   };
 }

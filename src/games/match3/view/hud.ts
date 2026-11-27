@@ -1,16 +1,18 @@
 import { Easing } from '../../../core/anim/easing';
 import { Renderer } from '../../../core/render/renderer';
 import {
-  drawPanel,
   drawStar,
   drawText,
   drawWangduCoin,
   fillRoundRect,
   Rect,
 } from '../../../shared/design-system/draw';
+import { inkRoundRect } from '../../../shared/design-system/paint';
+import { drawPaperPanel, drawStickerButton } from '../../../shared/design-system/paper-ui';
 import { DURATION } from '../../../shared/design-system/motion';
 import { RoyalOutfitId } from '../../../shared/design-system/royals';
 import { COLORS, FONT, RADIUS } from '../../../shared/design-system/tokens';
+import { compactNumber, formatDuration } from '../../../shared/format';
 import { tempoLabel, timerUrgency } from '../systems/tempo';
 import { Match3Stage } from './stage';
 
@@ -21,17 +23,29 @@ export function match3HudTop(renderer: Renderer): number {
   return Math.max(renderer.safeTop, renderer.capsuleBottom) + HUD_TOP_GAP;
 }
 
-export type HudHit = 'back' | 'daily' | 'restart' | 'home' | 'next';
+export type HudHit = 'back' | 'modes' | 'restart' | 'home' | 'next' | 'settle';
 
 export interface HudState {
   title: string;
   subtitle: string;
+  mode: 'campaign' | 'endless';
+  /** 无时间限制的成功交换次数。 */
+  swaps: number;
+  /** 无时间限制已用秒数。 */
+  elapsedSeconds: number;
   score: number;
   target: number;
+  /** 相对目标分的进度，允许 >1；给「王都共鸣」宝箱用。 */
   progress: number;
-  daily: boolean;
-  phase: 'playing' | 'won' | 'lost';
+  /** 相对三星门槛的进度，0–1；给顶部进度条用。 */
+  barProgress: number;
+  /** 当前星级 0–3；无时间限制恒为 0（没有星级，只看分数）。 */
   stars: number;
+  /** 已达成目标，可以继续冲星或提前结算。 */
+  targetReached: boolean;
+  /** 下一颗星的门槛分；三星已满为 null。 */
+  nextStarAt: number | null;
+  phase: 'playing' | 'won' | 'lost';
   hasNext: boolean;
   pulse: number;
   message: string;
@@ -43,8 +57,15 @@ export interface HudState {
   tempo: number;
   tempoWindow: number;
   reducedMotion: boolean;
+  liveCoins?: number;
   coinsEarned: number;
   coinBalance: number;
+  /** 本模式的最高分，结果面板用来对比纪录。 */
+  bestScore?: number;
+  /** 无时间限制单局最长用时（秒）。 */
+  bestSeconds?: number;
+  /** 无时间限制本局刷新了最高分。 */
+  isRecord?: boolean;
   outfit: RoyalOutfitId;
 }
 
@@ -53,10 +74,11 @@ export interface HudState {
  */
 export class Match3Hud {
   readonly backRect: Rect;
-  readonly dailyRect: Rect;
+  readonly modeRect: Rect;
   private restartRect: Rect = { x: 0, y: 0, w: 0, h: 0 };
   private homeRect: Rect = { x: 0, y: 0, w: 0, h: 0 };
   private nextRect: Rect = { x: 0, y: 0, w: 0, h: 0 };
+  private settleRect: Rect = { x: 0, y: 0, w: 0, h: 0 };
   private bounds: Rect = { x: 0, y: 0, w: 0, h: 0 };
   private pressed: HudHit | null = null;
   private resultSince = 0;
@@ -69,7 +91,7 @@ export class Match3Hud {
   constructor(private readonly renderer: Renderer) {
     this.hudTop = match3HudTop(renderer);
     this.backRect = { x: 40, y: this.hudTop, w: 96, h: 56 };
-    this.dailyRect = {
+    this.modeRect = {
       x: renderer.width - 40 - 120,
       y: this.hudTop,
       w: 120,
@@ -83,7 +105,8 @@ export class Match3Hud {
 
   hitTest(x: number, y: number): HudHit | null {
     if (this.hit(x, y, this.backRect)) return 'back';
-    if (this.hit(x, y, this.dailyRect)) return 'daily';
+    if (this.hit(x, y, this.modeRect)) return 'modes';
+    if (this.hit(x, y, this.settleRect)) return 'settle';
     if (!this.hit(x, y, this.bounds)) return null;
     if (this.hit(x, y, this.nextRect)) return 'next';
     if (this.hit(x, y, this.restartRect)) return 'restart';
@@ -120,9 +143,12 @@ export class Match3Hud {
       this.restartRect = { x: 0, y: 0, w: 0, h: 0 };
       this.homeRect = { x: 0, y: 0, w: 0, h: 0 };
     }
+    if (state.mode !== 'campaign' || state.phase !== 'playing' || !state.targetReached) {
+      this.settleRect = { x: 0, y: 0, w: 0, h: 0 };
+    }
 
     this.drawBackButton(ctx);
-    this.drawDailyButton(ctx, state);
+    this.drawModeButton(ctx);
 
     drawText(ctx, state.title, width / 2, this.hudTop + 50, {
       size: FONT.display,
@@ -138,7 +164,10 @@ export class Match3Hud {
     });
 
     this.drawStats(ctx, state);
-    this.drawProgress(ctx, state);
+    if (state.mode === 'campaign') this.drawProgress(ctx, state);
+    if (state.mode === 'campaign' && state.phase === 'playing' && state.targetReached) {
+      this.drawSettle(ctx);
+    }
     this.stage.render(ctx, this.renderer, state.boardBottom, {
       score: state.score,
       target: state.target,
@@ -151,6 +180,8 @@ export class Match3Hud {
       outfit: state.outfit,
       pulse: state.pulse,
       balance: state.coinBalance,
+      endless: state.mode === 'endless',
+      liveCoins: state.liveCoins,
     });
     this.drawMessage(ctx, state);
 
@@ -158,44 +189,24 @@ export class Match3Hud {
   }
 
   private drawBackButton(ctx: CanvasRenderingContext2D): void {
-    const rect = this.backRect;
-    const sink = this.pressed === 'back' ? 3 : 0;
-    fillRoundRect(ctx, { ...rect, y: rect.y + 4 }, 'rgba(58,46,42,0.12)', RADIUS.md);
-    drawPanel(ctx, { ...rect, y: rect.y + sink }, { fill: COLORS.paper, radius: RADIUS.md });
-    const cx = rect.x + rect.w / 2;
-    const cy = rect.y + rect.h / 2 + sink;
-    ctx.save();
-    ctx.strokeStyle = COLORS.inkSoft;
-    ctx.lineWidth = 3;
-    ctx.lineCap = 'round';
-    ctx.lineJoin = 'round';
-    ctx.beginPath();
-    ctx.moveTo(cx + 7, cy - 11);
-    ctx.lineTo(cx - 6, cy);
-    ctx.lineTo(cx + 7, cy + 11);
-    ctx.stroke();
-    ctx.restore();
+    drawStickerButton(ctx, this.backRect, '←', {
+      fill: COLORS.paper,
+      textColor: COLORS.ink,
+      fontSize: 30,
+      radius: RADIUS.md,
+      pressed: this.pressed === 'back',
+      seed: 901,
+    });
   }
 
-  private drawDailyButton(ctx: CanvasRenderingContext2D, state: HudState): void {
-    const rect = this.dailyRect;
-    const sink = this.pressed === 'daily' ? 3 : 0;
-    fillRoundRect(
-      ctx,
-      { ...rect, y: rect.y + 4 },
-      state.daily ? COLORS.teal : 'rgba(58,46,42,0.12)',
-      RADIUS.md,
-    );
-    drawPanel(
-      ctx,
-      { ...rect, y: rect.y + sink },
-      { fill: state.daily ? COLORS.jade : COLORS.paper, radius: RADIUS.md },
-    );
-    drawText(ctx, '每日', rect.x + rect.w / 2, rect.y + 28 + sink, {
-      size: 18,
-      color: state.daily ? COLORS.paper : COLORS.inkSoft,
-      align: 'center',
-      weight: '700',
+  private drawModeButton(ctx: CanvasRenderingContext2D): void {
+    drawStickerButton(ctx, this.modeRect, '模式', {
+      fill: COLORS.paper,
+      textColor: COLORS.inkSoft,
+      fontSize: 18,
+      radius: RADIUS.md,
+      pressed: this.pressed === 'modes',
+      seed: 903,
     });
   }
 
@@ -204,8 +215,18 @@ export class Match3Hud {
     const scoreRect: Rect = { x: 40, y: hudY, w: 360, h: 88 };
     const timeRect: Rect = { x: 420, y: hudY, w: 290, h: 88 };
 
-    drawPanel(ctx, scoreRect, { fill: COLORS.paper, radius: RADIUS.lg });
-    drawPanel(ctx, timeRect, { fill: COLORS.paper, radius: RADIUS.lg });
+    drawPaperPanel(ctx, scoreRect, {
+      fill: COLORS.paper,
+      radius: RADIUS.lg,
+      stitch: true,
+      seed: 905,
+    });
+    drawPaperPanel(ctx, timeRect, {
+      fill: COLORS.paper,
+      radius: RADIUS.lg,
+      stitch: true,
+      seed: 907,
+    });
 
     drawText(ctx, '分数', scoreRect.x + 22, scoreRect.y + 22, {
       size: FONT.caption,
@@ -218,7 +239,7 @@ export class Match3Hud {
     ctx.save();
     ctx.translate(scoreRect.x + 22, scoreRect.y + 58);
     ctx.scale(scoreScale, scoreScale);
-    drawText(ctx, `${state.score}`, 0, 0, {
+    drawText(ctx, compactNumber(state.score), 0, 0, {
       size: FONT.subtitle,
       weight: '700',
       color: COLORS.jade,
@@ -231,15 +252,21 @@ export class Match3Hud {
       h: 38,
     });
 
+    const endless = state.mode === 'endless';
     const urgency = timerUrgency(state.seconds);
-    const timeColor = urgency === 'normal' ? COLORS.ink : COLORS.coral;
-    drawText(ctx, '剩余时间', timeRect.x + 22, timeRect.y + 22, {
+    const timeColor = endless
+      ? COLORS.ink
+      : urgency === 'normal'
+        ? COLORS.ink
+        : COLORS.coral;
+    drawText(ctx, endless ? '已用时间' : '剩余时间', timeRect.x + 22, timeRect.y + 22, {
       size: FONT.caption,
       color: COLORS.inkSoft,
     });
 
-    const pulse =
-      urgency === 'critical' && !state.reducedMotion ? 1 + Math.sin(state.pulse * 7) * 0.03 : 1;
+    const pulse = !endless && urgency === 'critical' && !state.reducedMotion
+      ? 1 + Math.sin(state.pulse * 7) * 0.03
+      : 1;
     ctx.save();
     ctx.translate(timeRect.x + 22, timeRect.y + 58);
     ctx.scale(pulse, pulse);
@@ -250,16 +277,25 @@ export class Match3Hud {
     });
     ctx.restore();
 
-    const bar: Rect = { x: timeRect.x + 18, y: timeRect.y + 74, w: timeRect.w - 36, h: 6 };
-    fillRoundRect(ctx, bar, 'rgba(58,46,42,0.10)', 3);
-    fillRoundRect(
-      ctx,
-      { ...bar, w: bar.w * Math.max(0, Math.min(1, state.seconds / state.totalSeconds)) },
-      timeColor,
-      3,
-    );
+    if (endless) {
+      drawText(ctx, `交换 ${state.swaps} 次 · 随时退出结算`, timeRect.x + 22, timeRect.y + 74, {
+        size: 12,
+        color: 'rgba(107,91,84,0.75)',
+        maxWidth: timeRect.w - 40,
+      });
+    } else {
+      const bar: Rect = { x: timeRect.x + 18, y: timeRect.y + 74, w: timeRect.w - 36, h: 6 };
+      const ratio = state.seconds / Math.max(1, state.totalSeconds);
+      fillRoundRect(ctx, bar, 'rgba(58,46,42,0.10)', 3);
+      fillRoundRect(
+        ctx,
+        { ...bar, w: bar.w * Math.max(0, Math.min(1, ratio)) },
+        timeColor,
+        3,
+      );
+    }
 
-    if (urgency === 'critical' && Math.sin(state.pulse * 7) > 0.2) {
+    if (!endless && urgency === 'critical' && Math.sin(state.pulse * 7) > 0.2) {
       ctx.beginPath();
       ctx.arc(timeRect.x + timeRect.w - 24, timeRect.y + 26, 5, 0, Math.PI * 2);
       ctx.fillStyle = COLORS.coral;
@@ -304,28 +340,83 @@ export class Match3Hud {
   private drawProgress(ctx: CanvasRenderingContext2D, state: HudState): void {
     const y = state.boardBottom + 14;
     const bar: Rect = { x: 45, y, w: this.renderer.width - 90, h: 14 };
-    fillRoundRect(ctx, bar, 'rgba(58,46,42,0.12)', 7);
-    fillRoundRect(
-      ctx,
-      { ...bar, w: bar.w * Math.min(1, Math.max(0, state.progress)) },
-      COLORS.jade,
-      7,
-    );
-    drawText(ctx, `目标 ${state.target}`, 45, y + 38, {
-      size: 18,
-      color: COLORS.inkSoft,
+    const goals = [state.target, Math.round(state.target * 1.25), Math.round(state.target * 1.5)];
+    const max = goals[goals.length - 1] || state.target;
+    const ratio = Math.max(0, Math.min(1, state.barProgress));
+    const reached = state.score >= state.target;
+
+    inkRoundRect(ctx, bar.x, bar.y, bar.w, bar.h, 7, 'rgba(58,46,42,0.10)', {
+      stroke: 'rgba(58,46,42,0.16)',
+      width: 1.5,
+      seed: 941,
+      wobble: 0.2,
     });
-    drawText(
-      ctx,
-      `${Math.min(100, Math.round(state.progress * 100))}%`,
-      this.renderer.width - 45,
-      y + 38,
-      {
-        size: 18,
-        color: COLORS.inkSoft,
-        align: 'right',
-      },
-    );
+    inkRoundRect(ctx, bar.x, bar.y, bar.w * ratio, bar.h, 7, reached ? COLORS.gold : COLORS.jade, {
+      width: 0,
+    });
+
+    // 星门槛刻度：让玩家一眼看到「再打多少分能升星」。
+    goals.forEach((goal, index) => {
+      const x = bar.x + bar.w * Math.min(1, goal / max);
+      const filled = state.score >= goal;
+      drawStar(
+        ctx,
+        x,
+        bar.y - 2,
+        8,
+        3.4,
+        filled ? COLORS.gold : 'rgba(58,46,42,0.16)',
+      );
+      if (index === goals.length - 1) return;
+      ctx.save();
+      ctx.globalAlpha = 0.5;
+      ctx.strokeStyle = 'rgba(255,253,248,0.8)';
+      ctx.lineWidth = 1.4;
+      ctx.beginPath();
+      ctx.moveTo(x, bar.y + 2);
+      ctx.lineTo(x, bar.y + bar.h - 2);
+      ctx.stroke();
+      ctx.restore();
+    });
+
+    drawText(ctx, `目标 ${compactNumber(state.target)} · ${state.stars}/3 星`, 45, y + 38, {
+      size: 18,
+      color: reached ? COLORS.honeyDeep : COLORS.inkSoft,
+      weight: reached ? '700' : 'normal',
+    });
+
+    // 进度条按三星门槛走，右侧也用「还差多少分」而不是百分比，避免条和数字对不上。
+    const gap = state.nextStarAt === null ? 0 : Math.max(0, state.nextStarAt - state.score);
+    const right =
+      state.nextStarAt === null
+        ? '三星达成！'
+        : state.targetReached
+          ? `距 ${state.stars + 1} 星 ${compactNumber(gap)} 分`
+          : `距过关 ${compactNumber(gap)} 分`;
+    drawText(ctx, right, this.renderer.width - 45, y + 38, {
+      size: 18,
+      color: state.targetReached ? COLORS.honeyDeep : COLORS.inkSoft,
+      align: 'right',
+      maxWidth: 360,
+    });
+  }
+
+  private drawSettle(ctx: CanvasRenderingContext2D): void {
+    const rect: Rect = {
+      x: this.modeRect.x,
+      y: this.modeRect.y + this.modeRect.h + 8,
+      w: this.modeRect.w,
+      h: 44,
+    };
+    this.settleRect = rect;
+    drawStickerButton(ctx, rect, '提前结算', {
+      fill: COLORS.gold,
+      textColor: COLORS.honeyDeep,
+      fontSize: 16,
+      radius: RADIUS.md,
+      pressed: this.pressed === 'settle',
+      seed: 943,
+    });
   }
 
   private drawMessage(ctx: CanvasRenderingContext2D, state: HudState): void {
@@ -340,7 +431,16 @@ export class Match3Hud {
       w: width,
       h: 44,
     };
-    fillRoundRect(ctx, rect, 'rgba(58,46,42,0.88)', RADIUS.lg);
+    inkRoundRect(
+      ctx,
+      rect.x,
+      rect.y,
+      rect.w,
+      rect.h,
+      RADIUS.lg,
+      'rgba(58,46,42,0.88)',
+      { stroke: 'rgba(255,253,248,0.22)', width: 1.5, seed: 947 },
+    );
     drawText(ctx, state.message, this.renderer.width / 2, rect.y + 22, {
       size: 18,
       color: COLORS.paper,
@@ -376,13 +476,17 @@ export class Match3Hud {
     ctx.fillRect(0, 0, width, height);
     ctx.restore();
 
-    drawPanel(ctx, panel, { fill: COLORS.paper, radius: RADIUS.xl });
+    drawPaperPanel(ctx, panel, {
+      fill: COLORS.paper,
+      radius: RADIUS.xl,
+      stitch: true,
+      seed: 915,
+    });
 
     const won = state.phase === 'won';
-    const title = state.daily
-      ? won
-        ? '今日挑战完成！'
-        : '今日挑战失败'
+    const endless = state.mode === 'endless';
+    const title = endless
+      ? '这局结束啦'
       : won
         ? state.stars >= 3
           ? '三星达成！'
@@ -395,25 +499,47 @@ export class Match3Hud {
       color: won ? COLORS.jade : COLORS.coral,
       align: 'center',
     });
-    drawText(ctx, `本局得分 ${state.score} / ${state.target}`, width / 2, panel.y + 142, {
-      size: FONT.body,
-      color: COLORS.inkSoft,
-      align: 'center',
-    });
+    drawText(
+      ctx,
+      endless
+        ? `本局得分 ${compactNumber(state.score)}`
+        : `本局得分 ${state.score} / ${state.target}`,
+      width / 2,
+      panel.y + 142,
+      {
+        size: FONT.body,
+        color: COLORS.inkSoft,
+        align: 'center',
+      },
+    );
+    if (endless) {
+      drawText(
+        ctx,
+        `用时 ${formatDuration(state.elapsedSeconds)} · 交换 ${state.swaps} 次`,
+        width / 2,
+        panel.y + 172,
+        {
+          size: 16,
+          color: 'rgba(107,91,84,0.85)',
+          align: 'center',
+        },
+      );
+    }
 
-    drawWangduCoin(ctx, width / 2 - 64, panel.y + 180, 13);
-    drawText(ctx, `+${state.coinsEarned} 王都币`, width / 2 - 44, panel.y + 180, {
+    const coinY = panel.y + (endless ? 210 : 180);
+    drawWangduCoin(ctx, width / 2 - 64, coinY, 13);
+    drawText(ctx, `+${state.coinsEarned} 王都币`, width / 2 - 44, coinY, {
       size: 20,
       weight: '700',
       color: COLORS.honeyDeep,
     });
-    drawText(ctx, `余额 ${state.coinBalance}`, width / 2 + 118, panel.y + 180, {
+    drawText(ctx, `余额 ${state.coinBalance}`, width / 2 + 118, coinY, {
       size: 16,
       color: COLORS.inkSoft,
       maxWidth: 120,
     });
 
-    if (won && !state.daily) {
+    if (won && state.mode === 'campaign') {
       const since = this.resultSince === 0 ? 9999 : Date.now() - this.resultSince;
       for (let i = 0; i < 3; i += 1) {
         const local = state.reducedMotion
@@ -429,33 +555,65 @@ export class Match3Hud {
           i < state.stars ? COLORS.gold : 'rgba(58,46,42,0.12)',
         );
       }
+    } else if (endless) {
+      const pill: Rect = { x: width / 2 - 168, y: panel.y + 240, w: 336, h: 56 };
+      inkRoundRect(
+        ctx,
+        pill.x,
+        pill.y,
+        pill.w,
+        pill.h,
+        18,
+        state.isRecord ? 'rgba(242,193,78,0.28)' : 'rgba(168,230,207,0.3)',
+        {
+          stroke: state.isRecord ? 'rgba(185,134,47,0.5)' : 'rgba(58,46,42,0.14)',
+          width: 1.8,
+          seed: 927,
+        },
+      );
+      if (state.isRecord) drawStar(ctx, pill.x + 46, pill.y + 28, 15, 7, COLORS.gold);
+      drawText(
+        ctx,
+        state.isRecord
+          ? '新纪录！'
+          : `最高分 ${compactNumber(state.bestScore ?? state.score)}`,
+        width / 2,
+        pill.y + 28,
+        {
+          size: 19,
+          weight: '700',
+          color: state.isRecord ? COLORS.honeyDeep : COLORS.jade,
+          align: 'center',
+        },
+      );
     }
 
+    // 无时间限制多了一行用时和多一块纪录胶囊，按钮整体下移。
+    const buttonDrop = endless ? 52 : 0;
     this.nextRect = state.hasNext
       ? { x: width / 2 - 160, y: panel.y + 270, w: 320, h: 72 }
       : { x: 0, y: 0, w: 0, h: 0 };
     this.restartRect = {
       x: width / 2 - 160,
-      y: panel.y + (state.hasNext ? 356 : 280),
+      y: panel.y + (state.hasNext ? 356 : 280) + buttonDrop,
       w: 320,
       h: 64,
     };
     this.homeRect = {
       x: width / 2 - 160,
-      y: panel.y + (state.hasNext ? 444 : 370),
+      y: panel.y + (state.hasNext ? 444 : 370) + buttonDrop,
       w: 320,
       h: 56,
     };
 
     if (state.hasNext) {
-      this.drawButton(ctx, this.nextRect, 'next', '下一关', COLORS.jade, COLORS.teal, COLORS.paper);
+      this.drawButton(ctx, this.nextRect, 'next', '下一关', COLORS.jade, COLORS.paper);
       this.drawButton(
         ctx,
         this.restartRect,
         'restart',
         '重玩本关',
         'rgba(58,46,42,0.08)',
-        'rgba(58,46,42,0.16)',
         COLORS.inkSoft,
       );
     } else {
@@ -463,9 +621,8 @@ export class Match3Hud {
         ctx,
         this.restartRect,
         'restart',
-        state.daily ? '再试一次' : won ? '重玩本关' : '重新挑战',
+        state.mode === 'endless' ? '再来一局' : won ? '重玩本关' : '重新挑战',
         COLORS.jade,
-        COLORS.teal,
         COLORS.paper,
       );
     }
@@ -474,9 +631,8 @@ export class Match3Hud {
       ctx,
       this.homeRect,
       'home',
-      '返回大厅',
+      '选择模式',
       'rgba(58,46,42,0.06)',
-      'rgba(58,46,42,0.12)',
       COLORS.inkSoft,
     );
   }
@@ -487,17 +643,15 @@ export class Match3Hud {
     id: HudHit,
     label: string,
     fill: string,
-    edge: string,
     textColor: string,
   ): void {
-    const sink = this.pressed === id ? 4 : 0;
-    fillRoundRect(ctx, { ...rect, y: rect.y + 5 }, edge, RADIUS.md);
-    fillRoundRect(ctx, { ...rect, y: rect.y + sink }, fill, RADIUS.md);
-    drawText(ctx, label, rect.x + rect.w / 2, rect.y + sink + rect.h / 2, {
-      size: id === 'next' ? FONT.subtitle : FONT.body,
-      color: textColor,
-      align: 'center',
-      weight: id === 'home' ? 'normal' : '700',
+    drawStickerButton(ctx, rect, label, {
+      fill,
+      textColor,
+      fontSize: id === 'next' ? FONT.subtitle : FONT.body,
+      radius: RADIUS.md,
+      pressed: this.pressed === id,
+      seed: 931 + rect.y,
     });
   }
 }

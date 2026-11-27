@@ -122,7 +122,9 @@ export interface SaveSchema<T> {
 - 不存函数/DOM/Canvas/循环引用；
 - 大数组（>1000）考虑压缩/分片。
 
-## 6. 每日挑战
+## 6. 每日挑战（可选）
+
+> 三消自 ADR-0020 起只保留闯关/无时间限制，暂不提供每日挑战；该契约保留给后续活动或其他游戏。
 
 ```ts
 export interface DailyChallengeDefinition {

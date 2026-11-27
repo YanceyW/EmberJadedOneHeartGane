@@ -12,9 +12,17 @@ if (!fs.existsSync(path.join(dist, 'game.js'))) {
 }
 
 const gameJson = JSON.parse(fs.readFileSync(path.join(dist, 'game.json'), 'utf8'));
-if (!gameJson.subpackages?.some((item) => item.root.replace(/\/$/, '') === 'games/match3')) {
-  console.error('[smoke] match3 subpackage missing from game.json');
-  process.exit(1);
+for (const expected of [
+  'games/match3',
+  'games/farm',
+  'games/garden',
+  'games/merge',
+  'games/aquarium',
+]) {
+  if (!gameJson.subpackages?.some((item) => item.root.replace(/\/$/, '') === expected)) {
+    console.error(`[smoke] ${expected} subpackage missing from game.json`);
+    process.exit(1);
+  }
 }
 
 const gradient = { addColorStop() {} };
@@ -225,6 +233,17 @@ process.on('unhandledRejection', (error) => {
 });
 
 require(path.join(dist, 'game.js'));
+// 各分包单独 require 入口，确保注册与顶层渲染依赖都不抛错。
+for (const id of ['match3', 'farm', 'garden', 'merge', 'aquarium', 'restaurant']) {
+  require(path.join(dist, 'games', id, 'game.js'));
+}
+const { GameRegistry } = require(path.join(dist, 'core', 'game-registry.js'));
+for (const id of ['match3', 'farm', 'garden', 'merge', 'aquarium', 'restaurant']) {
+  if (!GameRegistry.get(id)) {
+    console.error(`[smoke] ${id} definition did not register`);
+    process.exit(1);
+  }
+}
 
 function tap(clientX, clientY) {
   touchStart?.({ touches: [{ identifier: 1, clientX, clientY }], changedTouches: [] });
@@ -264,6 +283,8 @@ function swipeCell(row, col, dRow, dCol) {
 setTimeout(() => tap(73, 742), 40);
 setTimeout(() => tap(187, 538), 120);
 setTimeout(() => tap(81, 350), 220);
+// 三消现在先进入模式选择：点「闯关模式」卡片中部开始一局。
+setTimeout(() => tap(187, 200), 360);
 
 // 三消现在只认滑动：扫一遍前几行的相邻交换，覆盖
 // 交换 → 消除 → 下落 → 节奏加成 → 音效/粒子 的完整链路。

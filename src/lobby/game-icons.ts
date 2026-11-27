@@ -16,6 +16,14 @@ export function drawGameIcon(
   accent: Accent,
   match3Style: string = 'candy',
 ): void {
+  ctx.save();
+  ctx.globalAlpha = 0.14;
+  ctx.fillStyle = COLORS.ink;
+  ctx.beginPath();
+  ctx.ellipse(cx, cy + size * 0.58, size * 0.52, size * 0.1, 0, 0, Math.PI * 2);
+  ctx.fill();
+  ctx.restore();
+
   switch (id) {
     case 'match3':
       drawMatch3Icon(ctx, cx, cy, size, match3Style);
@@ -28,6 +36,15 @@ export function drawGameIcon(
       break;
     case 'aquarium':
       drawAquariumIcon(ctx, cx, cy, size, accent);
+      break;
+    case 'farm':
+      drawFarmIcon(ctx, cx, cy, size);
+      break;
+    case 'restaurant':
+      drawRestaurantIcon(ctx, cx, cy, size, accent);
+      break;
+    case 'ranch':
+      drawRanchIcon(ctx, cx, cy, size, accent);
       break;
     default:
       drawPetal(ctx, cx, cy, size * 0.8, accent.main);
@@ -47,8 +64,8 @@ function roundCandy(
   ctx.arc(x, y, radius, 0, Math.PI * 2);
   ctx.fillStyle = fill;
   ctx.fill();
-  ctx.strokeStyle = 'rgba(58,46,42,0.30)';
-  ctx.lineWidth = 2.5;
+  ctx.strokeStyle = COLORS.ink;
+  ctx.lineWidth = 2.8;
   ctx.stroke();
 
   ctx.save();
@@ -100,9 +117,9 @@ function drawSwapIcon(ctx: CanvasRenderingContext2D, cx: number, cy: number, siz
   const left = { x: cx - tile - size * 0.06, y: cy - tile * 0.72, w: tile, h: tile };
   const right = { x: cx + size * 0.06, y: cy - tile * 0.28, w: tile, h: tile };
   fillRoundRect(ctx, left, COLORS.berry, tile * 0.3);
-  strokeRoundRect(ctx, left, 'rgba(58,46,42,0.28)', 2.5, tile * 0.3);
+  strokeRoundRect(ctx, left, COLORS.ink, 2.8, tile * 0.3);
   fillRoundRect(ctx, right, COLORS.honey, tile * 0.3);
-  strokeRoundRect(ctx, right, 'rgba(58,46,42,0.28)', 2.5, tile * 0.3);
+  strokeRoundRect(ctx, right, COLORS.ink, 2.8, tile * 0.3);
 
   ctx.save();
   ctx.globalAlpha = 0.55;
@@ -144,7 +161,7 @@ function drawHoneyJarIcon(
 ): void {
   const body = { x: cx - size * 0.4, y: cy - size * 0.2, w: size * 0.8, h: size * 0.72 };
   fillRoundRect(ctx, body, COLORS.honey, size * 0.24);
-  strokeRoundRect(ctx, body, 'rgba(58,46,42,0.28)', 2.5, size * 0.24);
+  strokeRoundRect(ctx, body, COLORS.ink, 2.8, size * 0.24);
   fillRoundRect(
     ctx,
     { x: cx - size * 0.32, y: cy - size * 0.42, w: size * 0.64, h: size * 0.2 },
@@ -196,8 +213,8 @@ function drawGardenIcon(
   ctx.closePath();
   ctx.fillStyle = COLORS.peach;
   ctx.fill();
-  ctx.strokeStyle = COLORS.inkSoft;
-  ctx.lineWidth = 2;
+  ctx.strokeStyle = COLORS.ink;
+  ctx.lineWidth = 2.6;
   ctx.stroke();
 
   fillRoundRect(
@@ -236,8 +253,8 @@ function drawMergeIcon(ctx: CanvasRenderingContext2D, cx: number, cy: number, si
   strokeRoundRect(
     ctx,
     { x: cx - size * 0.56, y: cy - size * 0.24, w: size * 1.12, h: size * 1.08 },
-    'rgba(58,46,42,0.22)',
-    2,
+    COLORS.ink,
+    2.6,
     size * 0.24,
   );
   fillRoundRect(
@@ -265,6 +282,163 @@ function drawMergeIcon(ctx: CanvasRenderingContext2D, cx: number, cy: number, si
   drawStar(ctx, cx + size * 0.72, cy - size * 0.72, size * 0.16, size * 0.07, COLORS.honey);
 }
 
+function drawRestaurantIcon(
+  ctx: CanvasRenderingContext2D,
+  cx: number,
+  cy: number,
+  size: number,
+  accent: Accent,
+): void {
+  // 餐盘
+  ctx.beginPath();
+  ctx.ellipse(cx, cy + size * 0.3, size * 0.62, size * 0.2, 0, 0, Math.PI * 2);
+  ctx.fillStyle = COLORS.paper;
+  ctx.fill();
+  ctx.strokeStyle = COLORS.ink;
+  ctx.lineWidth = 2.6;
+  ctx.stroke();
+  // 菜品
+  fillRoundRect(
+    ctx,
+    { x: cx - size * 0.34, y: cy - size * 0.06, w: size * 0.68, h: size * 0.3 },
+    COLORS.honey,
+    size * 0.1,
+  );
+  strokeRoundRect(
+    ctx,
+    { x: cx - size * 0.34, y: cy - size * 0.06, w: size * 0.68, h: size * 0.3 },
+    COLORS.ink,
+    2.4,
+    size * 0.1,
+  );
+  // 扣着的餐盖
+  ctx.beginPath();
+  ctx.ellipse(cx, cy - size * 0.12, size * 0.46, size * 0.3, 0, Math.PI, Math.PI * 2);
+  ctx.fillStyle = accent.soft;
+  ctx.fill();
+  ctx.strokeStyle = COLORS.ink;
+  ctx.lineWidth = 2.6;
+  ctx.stroke();
+  fillRoundRect(
+    ctx,
+    { x: cx - size * 0.06, y: cy - size * 0.6, w: size * 0.12, h: size * 0.12 },
+    COLORS.gold,
+    size * 0.06,
+  );
+  drawPetal(ctx, cx - size * 0.42, cy + size * 0.16, size * 0.12, COLORS.leaf);
+}
+
+function drawRanchIcon(
+  ctx: CanvasRenderingContext2D,
+  cx: number,
+  cy: number,
+  size: number,
+  accent: Accent,
+): void {
+  // 绿色屋顶的牧场小屋
+  fillRoundRect(
+    ctx,
+    { x: cx - size * 0.46, y: cy - size * 0.1, w: size * 0.92, h: size * 0.68 },
+    COLORS.paper,
+    size * 0.12,
+  );
+  strokeRoundRect(
+    ctx,
+    { x: cx - size * 0.46, y: cy - size * 0.1, w: size * 0.92, h: size * 0.68 },
+    COLORS.ink,
+    2.6,
+    size * 0.12,
+  );
+  ctx.beginPath();
+  ctx.moveTo(cx - size * 0.58, cy - size * 0.04);
+  ctx.lineTo(cx, cy - size * 0.46);
+  ctx.lineTo(cx + size * 0.58, cy - size * 0.04);
+  ctx.lineTo(cx + size * 0.44, cy + size * 0.04);
+  ctx.lineTo(cx, cy - size * 0.3);
+  ctx.lineTo(cx - size * 0.44, cy + size * 0.04);
+  ctx.closePath();
+  ctx.fillStyle = accent.main;
+  ctx.fill();
+  ctx.strokeStyle = COLORS.ink;
+  ctx.lineWidth = 2.4;
+  ctx.stroke();
+  fillRoundRect(
+    ctx,
+    { x: cx - size * 0.16, y: cy + size * 0.12, w: size * 0.32, h: size * 0.42 },
+    COLORS.honey,
+    size * 0.06,
+  );
+  strokeRoundRect(
+    ctx,
+    { x: cx - size * 0.16, y: cy + size * 0.12, w: size * 0.32, h: size * 0.42 },
+    COLORS.ink,
+    1.8,
+    size * 0.06,
+  );
+  // 鸡蛋和奶罐
+  ctx.beginPath();
+  ctx.ellipse(cx - size * 0.42, cy + size * 0.38, size * 0.13, size * 0.17, -0.2, 0, Math.PI * 2);
+  ctx.fillStyle = COLORS.cream;
+  ctx.fill();
+  ctx.strokeStyle = COLORS.ink;
+  ctx.lineWidth = 1.6;
+  ctx.stroke();
+  fillRoundRect(
+    ctx,
+    { x: cx + size * 0.3, y: cy + size * 0.18, w: size * 0.22, h: size * 0.3 },
+    COLORS.sky,
+    size * 0.05,
+  );
+  strokeRoundRect(
+    ctx,
+    { x: cx + size * 0.3, y: cy + size * 0.18, w: size * 0.22, h: size * 0.3 },
+    COLORS.ink,
+    1.6,
+    size * 0.05,
+  );
+  drawPetal(ctx, cx + size * 0.38, cy - size * 0.34, size * 0.1, COLORS.leaf);
+}
+
+function drawFarmIcon(ctx: CanvasRenderingContext2D, cx: number, cy: number, size: number): void {  const body = { x: cx - size * 0.42, y: cy - size * 0.12, w: size * 0.84, h: size * 0.7 };
+  fillRoundRect(ctx, body, COLORS.cream, size * 0.14);
+  strokeRoundRect(ctx, body, COLORS.ink, 2.8, size * 0.14);
+  ctx.beginPath();
+  ctx.moveTo(cx - size * 0.54, cy - size * 0.06);
+  ctx.lineTo(cx, cy - size * 0.48);
+  ctx.lineTo(cx + size * 0.54, cy - size * 0.06);
+  ctx.lineTo(cx + size * 0.44, cy + size * 0.02);
+  ctx.lineTo(cx, cy - size * 0.34);
+  ctx.lineTo(cx - size * 0.44, cy + size * 0.02);
+  ctx.closePath();
+  ctx.fillStyle = COLORS.berry;
+  ctx.fill();
+  ctx.strokeStyle = COLORS.ink;
+  ctx.lineWidth = 2.6;
+  ctx.stroke();
+  fillRoundRect(
+    ctx,
+    { x: cx - size * 0.18, y: cy + size * 0.1, w: size * 0.36, h: size * 0.44 },
+    COLORS.honey,
+    size * 0.06,
+  );
+  strokeRoundRect(
+    ctx,
+    { x: cx - size * 0.18, y: cy + size * 0.1, w: size * 0.36, h: size * 0.44 },
+    COLORS.ink,
+    2,
+    size * 0.06,
+  );
+  ctx.strokeStyle = COLORS.ink;
+  ctx.lineWidth = 2;
+  ctx.beginPath();
+  ctx.moveTo(cx - size * 0.14, cy + size * 0.14);
+  ctx.lineTo(cx + size * 0.14, cy + size * 0.5);
+  ctx.moveTo(cx + size * 0.14, cy + size * 0.14);
+  ctx.lineTo(cx - size * 0.14, cy + size * 0.5);
+  ctx.stroke();
+  drawPetal(ctx, cx + size * 0.38, cy + size * 0.42, size * 0.12, COLORS.leaf);
+}
+
 function drawAquariumIcon(
   ctx: CanvasRenderingContext2D,
   cx: number,
@@ -281,9 +455,17 @@ function drawAquariumIcon(
   ctx.restore();
   ctx.beginPath();
   ctx.arc(cx, cy + size * 0.04, size * 0.84, 0, Math.PI * 2);
-  ctx.strokeStyle = accent.main;
-  ctx.lineWidth = 2.5;
+  ctx.strokeStyle = COLORS.ink;
+  ctx.lineWidth = 2.8;
   ctx.stroke();
+  ctx.save();
+  ctx.globalAlpha = 0.5;
+  ctx.strokeStyle = accent.main;
+  ctx.lineWidth = 2;
+  ctx.beginPath();
+  ctx.arc(cx, cy + size * 0.04, size * 0.7, 0, Math.PI * 2);
+  ctx.stroke();
+  ctx.restore();
 
   // 小鱼
   const fishX = cx - size * 0.08;
