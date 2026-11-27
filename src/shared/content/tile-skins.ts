@@ -38,7 +38,7 @@ export const TILE_SKINS: readonly TileSkinDef[] = [
   {
     id: 'town',
     name: '王都食集方块',
-    venue: '面包房 · 食集',
+    venue: '点心铺 · 食集',
     description: '刚出炉的面包、胡萝卜和甜点',
     price: 260,
     sprites: ['tile-bread', 'tile-carrot', 'tile-honey', 'tile-mint', 'tile-sky'],

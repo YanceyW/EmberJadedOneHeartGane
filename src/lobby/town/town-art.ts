@@ -1,7 +1,7 @@
 ﻿import { createRng } from '../../core/rng';
 import { QualityTier } from '../../core/quality/quality';
 import { platform } from '../../shared/platform/wx';
-import { COLORS, TOWN_COLORS } from '../../shared/design-system/tokens';
+import { COLORS } from '../../shared/design-system/tokens';
 import { drawPetal } from '../../shared/design-system/draw';
 import { applyGrainToOpaque, inkLine, softShadow } from '../../shared/design-system/paint';
 import { TownBuildingLayout, TownFacilityLayout, TownLayout } from './town-layout';
@@ -162,51 +162,13 @@ export class TownArt {
       ctx.fill();
     }
 
-    // 浜?
-    this.clouds(ctx, width, layout.groundTop, palette, phase === 'night' ? 0.5 : 0.8);
-
+    // 云由渲染层动态绘制（见 town-view 的 drawClouds），烘焙层只留天空/山/远景屋顶。
     if (this.tier !== 'low') {
       this.bunting(ctx, width, layout.groundTop - 96, palette);
     }
 
     if (this.texture) applyGrainToOpaque(ctx, width, height, 0.5);
     return { canvas, width, height };
-  }
-
-  private clouds(
-    ctx: CanvasRenderingContext2D,
-    width: number,
-    groundTop: number,
-    palette: TownPalette,
-    alpha: number,
-  ): void {
-    const draw = (cx: number, cy: number, scale: number): void => {
-      ctx.globalAlpha = alpha;
-      ctx.fillStyle = palette.cloud;
-      for (const [dx, dy, rx, ry] of [
-        [-70, 16, 58, 34],
-        [-18, 0, 72, 46],
-        [46, 10, 62, 38],
-        [92, 24, 40, 26],
-        [10, 30, 70, 28],
-      ] as Array<[number, number, number, number]>) {
-        ctx.beginPath();
-        ctx.ellipse(cx + dx * scale, cy + dy * scale, rx * scale, ry * scale, 0, 0, Math.PI * 2);
-        ctx.fill();
-      }
-      ctx.globalAlpha = alpha * 0.3;
-      ctx.fillStyle = TOWN_COLORS.cloudShade;
-      ctx.beginPath();
-      ctx.ellipse(cx, cy + 42 * scale, 120 * scale, 18 * scale, 0, 0, Math.PI * 2);
-      ctx.fill();
-      ctx.globalAlpha = 1;
-    };
-    draw(110, groundTop - 150, 1.0);
-    draw(width - 250, groundTop - 190, 0.78);
-    draw(width * 0.48, groundTop - 92, 0.58);
-    if (this.tier !== 'low') {
-      draw(width * 0.78, groundTop - 52, 0.42);
-    }
   }
 
   private bunting(ctx: CanvasRenderingContext2D, width: number, y: number, palette: TownPalette): void {
@@ -476,7 +438,7 @@ export class TownArt {
     const { canvas, ctx } = this.canvas(width, height);
     if (!ctx) return { canvas, width, height };
     ctx.translate(BUILD_PAD + localW / 2, BUILD_PAD + localH);
-    drawBuildingBody(ctx, building, townPalette(phase, this.style), 0);
+    drawBuildingBody(ctx, building, townPalette(phase, this.style));
     if (this.texture) {
       ctx.setTransform(1, 0, 0, 1, 0, 0);
       applyGrainToOpaque(ctx, width, height, 0.5);

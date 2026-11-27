@@ -38,15 +38,6 @@ export type TownHit =
   | { kind: 'venue'; building: TownBuildingLayout }
   | { kind: 'facility'; facility: TownFacilityLayout };
 
-export interface ResidentPath {
-  id: string;
-  points: TownPoint[];
-  speed: number;
-  phase: number;
-  scale: number;
-  palette: number;
-}
-
 export interface FutureAnchor {
   x: number;
   label: string;
@@ -64,6 +55,8 @@ export interface TownLayout {
   dockRect: Rect;
   /** 世界宽（设计像素）；默认 1500，可左右平移。 */
   worldWidth: number;
+  /** 纵向比例系数：矮屏时建筑/装饰一起缩，居民也用它。 */
+  unit: number;
   /** 平铺地面的地平线。 */
   groundTop: number;
   /** 相机缩放的纵向锚点（广场中心附近）。 */
@@ -75,7 +68,6 @@ export interface TownLayout {
   facilities: TownFacilityLayout[];
   /** 建筑 + 设施，绘制与命中都按 depth 排序用它。 */
   structures: Array<TownBuildingLayout | TownFacilityLayout>;
-  residents: ResidentPath[];
   cameraBounds: TownCameraBounds;
   futureAnchors: FutureAnchor[];
   /** 兼容旧调用：大厅中心（世界坐标）。 */
@@ -181,45 +173,6 @@ export function computeTownLayout(
     hit: { x: -92 * u, y: royalY - 160 * u, w: 184 * u, h: 190 * u },
   };
 
-  const residents: ResidentPath[] = [
-    {
-      id: 'resident-a',
-      points: [
-        { x: toWorldX(130, width), y: groundTop + 470 * u },
-        { x: toWorldX(280, width), y: groundTop + 505 * u },
-        { x: toWorldX(440, width), y: groundTop + 475 * u },
-      ],
-      speed: 0.055,
-      phase: 0,
-      scale: 0.95 * u,
-      palette: 0,
-    },
-    {
-      id: 'resident-b',
-      points: [
-        { x: toWorldX(605, width), y: groundTop + 455 * u },
-        { x: toWorldX(455, width), y: groundTop + 500 * u },
-        { x: toWorldX(270, width), y: groundTop + 470 * u },
-      ],
-      speed: 0.045,
-      phase: 0.37,
-      scale: 0.9 * u,
-      palette: 2,
-    },
-    {
-      id: 'resident-c',
-      points: [
-        { x: toWorldX(300, width), y: groundTop + 550 * u },
-        { x: toWorldX(450, width), y: groundTop + 520 * u },
-        { x: toWorldX(570, width), y: groundTop + 555 * u },
-      ],
-      speed: 0.038,
-      phase: 0.71,
-      scale: 0.85 * u,
-      palette: 4,
-    },
-  ];
-
   return {
     width,
     height,
@@ -231,6 +184,7 @@ export function computeTownLayout(
     townBottom,
     dockRect,
     worldWidth: WORLD_WIDTH,
+    unit: u,
     groundTop,
     focusY,
     fountain,
@@ -238,7 +192,6 @@ export function computeTownLayout(
     buildings,
     facilities,
     structures,
-    residents,
     cameraBounds: {
       worldWidth: WORLD_WIDTH,
       viewWidth: width,

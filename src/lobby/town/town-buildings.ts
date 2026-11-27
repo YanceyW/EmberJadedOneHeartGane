@@ -1005,7 +1005,6 @@ export function drawBuildingBody(
   ctx: CanvasRenderingContext2D,
   building: TownBuildingLayout,
   palette: TownPalette,
-  buildGardenLevel: number,
 ): void {
   switch (building.entry.id) {
     case 'match3':
@@ -1039,12 +1038,6 @@ export function drawBuildingBody(
       break;
   }
 
-  if (buildGardenLevel > 0) {
-    for (let i = 0; i < buildGardenLevel; i += 1) {
-      drawPetal(ctx, -72 + i * 36, -4, 6.5, i % 2 === 0 ? COLORS.petal : COLORS.honey);
-    }
-  }
-
   if (building.entry.status !== 'playable') {
     // 水族馆的鱼缸更低，木牌下移，避免盖住主鱼。
     scaffolding(ctx, palette, building.entry.id === 'aquarium' ? 20 : 0);
@@ -1076,7 +1069,6 @@ export function drawBuildingOverlay(
   time: number,
   iconStyle: string,
   reducedMotion: boolean,
-  buildGardenLevel: number,
 ): void {
   const anchors = BUILDING_ANCHORS[building.entry.id];
   if (!anchors) return;
@@ -1129,31 +1121,38 @@ export function drawBuildingOverlay(
   ctx.restore();
 
   if (building.entry.status === 'playable') {
-    ctx.globalAlpha = 0.5 + Math.sin(time * 2.1 + building.base.x) * 0.16;
-    inkRoundRect(ctx, -96, -228, 192, 230, 22, null, {
-      stroke: building.accent.main,
-      width: 2.5,
-      seed: 409,
-      wobble: 0.4,
-    });
+    // 门口暖光 + 小木吊牌，不在立面上套大方框。
+    const door = anchors.door;
+    for (let i = 3; i > 0; i -= 1) {
+      ctx.globalAlpha = 0.06 + (3 - i) * 0.035;
+      ctx.fillStyle = palette.lamp;
+      ctx.beginPath();
+      ctx.ellipse(door.x, door.y - 12, 20 + i * 11, 13 + i * 7, 0, 0, Math.PI * 2);
+      ctx.fill();
+    }
     ctx.globalAlpha = 1;
-    inkRoundRect(ctx, -40, -112, 80, 24, 12, building.accent.main, {
+    ctx.save();
+    ctx.translate(door.x, door.y - 44);
+    if (!reducedMotion) ctx.rotate(Math.sin(time * 1.5 + building.base.x) * 0.05);
+    inkLine(ctx, [{ x: 0, y: -10 }, { x: 0, y: 0 }], {
+      stroke: palette.woodDeep,
+      width: 2,
+      seed: 413,
+      wobble: 0.2,
+    });
+    inkRoundRect(ctx, -34, 0, 68, 22, 10, building.accent.main, {
       stroke: 'rgba(58,46,42,0.20)',
-      width: 1.5,
+      width: 1.4,
       seed: 411,
     });
-    drawText(ctx, '可游玩', 0, -99, {
-      size: 13,
+    drawText(ctx, '可游玩', 0, 11, {
+      size: 12.5,
       weight: '700',
       color: COLORS.paper,
       align: 'center',
     });
-  }
-
-  if (buildGardenLevel > 0) {
-    for (let i = 0; i < buildGardenLevel; i += 1) {
-      drawPetal(ctx, -78 + i * 38, -2, 6, i % 2 === 0 ? COLORS.petal : COLORS.honey);
-    }
+    ctx.restore();
+    ctx.globalAlpha = 1;
   }
 }
 
@@ -1165,9 +1164,8 @@ export function drawTownBuilding(
   _time: number,
   _iconStyle: string,
   _reducedMotion: boolean,
-  buildGardenLevel: number,
 ): void {
-  drawBuildingBody(ctx, building, palette, buildGardenLevel);
+  drawBuildingBody(ctx, building, palette);
 }
 
 export const FACILITY_ANCHORS: Record<string, BuildingAnchors> = {

@@ -59,19 +59,19 @@ export const OUTFITS: readonly OutfitDef[] = [
   },
   {
     id: 'garden',
-    name: '花园漫步',
-    description: '草帽、花朵与轻便披肩',
+    name: '花朝出游',
+    description: '花冠、竹伞与轻便披风',
     price: 160,
   },
   {
     id: 'winter',
     name: '暖冬出行',
-    description: '围巾、耳罩和毛绒外套',
+    description: '围巾、护耳和手炉',
     price: 220,
   },
   {
     id: 'starlight',
-    name: '星夜舞会',
+    name: '星夜巡游',
     description: '深紫披风与金色星纹',
     price: 280,
   },

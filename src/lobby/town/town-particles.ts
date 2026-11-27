@@ -6,6 +6,7 @@ import { createRng } from '../../core/rng';
 import { BUILDING_ANCHORS } from './town-buildings';
 import { TownLayout } from './town-layout';
 import { TownCamera, worldToScreen } from './town-camera';
+import { WeatherId } from '../themes';
 
 export interface AmbientState {
   layout: TownLayout;
@@ -14,6 +15,8 @@ export interface AmbientState {
   reducedMotion: boolean;
   sceneMotion: boolean;
   fountainLevel: number;
+  lightsLevel: number;
+  weather: WeatherId;
 }
 
 const SPRITES = [
@@ -58,12 +61,13 @@ export class LobbyAmbient {
     if (budget <= 0) return;
 
     const { layout, camera, night, sceneMotion } = state;
+    const wet = state.weather === 'rain' || state.weather === 'snow';
     const visibleMin = camera.x - layout.width / (2 * camera.zoom) - 80;
     const visibleMax = camera.x + layout.width / (2 * camera.zoom) + 80;
 
     this.petalTimer += dt;
     const petalEvery = budget > 120 ? 0.55 : budget > 60 ? 0.8 : 1.25;
-    if (this.petalTimer >= petalEvery) {
+    if (!wet && this.petalTimer >= petalEvery) {
       this.petalTimer = 0;
       const leaf = this.rng.next() > 0.55;
       this.system.burst(
@@ -113,7 +117,7 @@ export class LobbyAmbient {
               spread: 7,
             },
             fountain.x,
-            fountain.y - 118 * camera.zoom,
+            fountain.y - (state.fountainLevel >= 2 ? 142 : 118) * camera.zoom,
           );
         }
       }
@@ -195,7 +199,7 @@ export class LobbyAmbient {
         }
       }
 
-      if (night) {
+      if (night && state.lightsLevel >= 2) {
         this.fireflyTimer += dt;
         if (this.fireflyTimer >= 0.75) {
           this.fireflyTimer = 0;
@@ -204,7 +208,7 @@ export class LobbyAmbient {
           this.system.burst(
             {
               sprite: 'p-firefly',
-              count: 1,
+              count: state.lightsLevel >= 3 ? 2 : 1,
               lifespan: [4, 7],
               speed: [4, 14],
               angle: [0, Math.PI * 2],

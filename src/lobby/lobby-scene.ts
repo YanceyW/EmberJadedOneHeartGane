@@ -23,6 +23,7 @@ import { drawGameIcon } from './game-icons';
 import { ChromeNav, drawDock, drawHeader, drawLobbyToast, drawPanHint } from './lobby-chrome';
 import { TownArt } from './town/town-art';
 import { LobbyAmbient } from './town/town-particles';
+import { ResidentDirector } from './town/town-residents';
 import {
   createCamera,
   panCamera,
@@ -138,6 +139,10 @@ export class LobbyScene implements Scene {
 
   private readonly art = new TownArt();
   private readonly ambient: LobbyAmbient;
+  private readonly residents = new ResidentDirector(0x7a17);
+  private residentCount = -1;
+  private residentPalettes: number[] = [];
+  private pressedStructureId: string | null = null;
   private camera: TownCamera = createCamera();
   private lastDrag: { x: number; y: number } | null = null;
   private pinchBaseZoom: number | null = null;
@@ -239,13 +244,30 @@ export class LobbyScene implements Scene {
       );
     }
     if (this.phaseFlash > 0) this.phaseFlash = Math.max(0, this.phaseFlash - dt * 4.2);
+
+    const profile = this.services.profile.get();
+    if (profile.residents.length !== this.residentCount) {
+      this.residentCount = profile.residents.length;
+      this.residentPalettes = profile.residents.map((resident) => resident.palette);
+      this.residents.sync(this.residentCount, this.residentPalettes, this.layout);
+    }
+    const halfView = this.layout.width / (2 * this.camera.zoom);
+    this.residents.update(
+      dt,
+      this.layout,
+      { minX: this.camera.x - halfView, maxX: this.camera.x + halfView },
+      this.services.quality.allowSceneMotion,
+    );
+
     this.ambient.update(dt, {
       layout: this.layout,
       camera: this.camera,
       night: this.phase === 'night',
       reducedMotion: this.services.quality.reducedMotion,
       sceneMotion: this.services.quality.allowSceneMotion,
-      fountainLevel: this.services.profile.get().cosmetics.build.fountain,
+      fountainLevel: profile.cosmetics.build.fountain,
+      lightsLevel: profile.cosmetics.build.lights,
+      weather: findWeather(profile.cosmetics.weather)?.id ?? 'clear',
     });
   }
 
@@ -325,7 +347,8 @@ export class LobbyScene implements Scene {
       outfit: profile.cosmetics.royalOutfit as RoyalOutfitId,
       mood: this.royalMood(),
       build: profile.cosmetics.build,
-      residentCount: profile.residents.length,
+      residents: this.residents.actors,
+      pressedId: this.pressedStructureId,
     });
 
     this.ambient.draw(ctx);
@@ -333,9 +356,12 @@ export class LobbyScene implements Scene {
       weather,
       width: this.layout.width,
       height: this.layout.height,
+      groundTop: this.layout.groundTop,
+      dockTop: this.layout.dockRect.y,
       time: this.pulse,
       quality: this.services.quality.tier,
       reducedMotion: this.services.quality.reducedMotion,
+      night: this.phase === 'night',
     });
 
     if (this.phaseFlash > 0.001) {
@@ -491,7 +517,13 @@ export class LobbyScene implements Scene {
     this.lastDrag = null;
     this.pinchBaseZoom = null;
     const world = screenToWorld(this.camera, point.x, point.y, this.layout.width, this.layout.focusY);
-    if (townStructureAt(this.layout, world.x, world.y)) this.services.feedback.press();
+    const structure = townStructureAt(this.layout, world.x, world.y);
+    this.pressedStructureId = structure
+      ? structure.kind === 'venue'
+        ? structure.building.id
+        : structure.facility.id
+      : null;
+    if (structure) this.services.feedback.press();
   }
 
   onDrag(point: PointerPoint): void {
@@ -526,6 +558,7 @@ export class LobbyScene implements Scene {
 
   onRelease(): void {
     this.pressedNav = null;
+    this.pressedStructureId = null;
     this.lastDrag = null;
     this.pinchBaseZoom = null;
   }
@@ -918,7 +951,7 @@ export class LobbyScene implements Scene {
         },
       );
       const cx = card.x + card.w / 2;
-      this.drawWeatherPreview(ctx, weather.id, cx, card.y + 62, 34);
+      this.drawWeatherPreview(ctx, weather.id, cx, card.y + 62, 34, this.pulse);
       drawText(ctx, weather.name, card.x + 18, card.y + 112, {
         size: FONT.body,
         weight: '700',
@@ -944,6 +977,7 @@ export class LobbyScene implements Scene {
     cx: number,
     cy: number,
     size: number,
+    time: number,
   ): void {
     ctx.save();
     ctx.strokeStyle = COLORS.ink;
@@ -954,6 +988,15 @@ export class LobbyScene implements Scene {
       ctx.arc(cx, cy, size * 0.5, 0, Math.PI * 2);
       ctx.fill();
       ctx.stroke();
+      ctx.strokeStyle = COLORS.honey;
+      ctx.lineWidth = 2;
+      for (let i = 0; i < 8; i += 1) {
+        const a = (Math.PI * 2 * i) / 8 + time * 0.25;
+        ctx.beginPath();
+        ctx.moveTo(cx + Math.cos(a) * size * 0.66, cy + Math.sin(a) * size * 0.66);
+        ctx.lineTo(cx + Math.cos(a) * size * 0.86, cy + Math.sin(a) * size * 0.86);
+        ctx.stroke();
+      }
     } else if (id === 'rain') {
       ctx.fillStyle = COLORS.sky;
       ctx.beginPath();
@@ -961,11 +1004,14 @@ export class LobbyScene implements Scene {
       ctx.arc(cx + 8, cy - 8, 22, 0, Math.PI * 2);
       ctx.arc(cx + 24, cy + 4, 15, 0, Math.PI * 2);
       ctx.fill();
+      ctx.stroke();
       ctx.strokeStyle = COLORS.waterDeep;
+      ctx.lineWidth = 1.6;
       for (let i = -1; i <= 1; i += 1) {
+        const fall = (time * 42 + (i + 1) * 13) % 34;
         ctx.beginPath();
-        ctx.moveTo(cx + i * 16, cy + 22);
-        ctx.lineTo(cx + i * 16 - 5, cy + 34);
+        ctx.moveTo(cx + i * 16, cy + 12 + fall);
+        ctx.lineTo(cx + i * 16 - 5, cy + 24 + fall);
         ctx.stroke();
       }
     } else if (id === 'snow') {
@@ -973,15 +1019,31 @@ export class LobbyScene implements Scene {
       for (let i = 0; i < 3; i += 1) {
         const a = (Math.PI * i) / 3;
         ctx.beginPath();
-        ctx.moveTo(cx - Math.cos(a) * 24, cy - Math.sin(a) * 24);
-        ctx.lineTo(cx + Math.cos(a) * 24, cy + Math.sin(a) * 24);
+        ctx.moveTo(cx - Math.cos(a) * 20, cy - Math.sin(a) * 20);
+        ctx.lineTo(cx + Math.cos(a) * 20, cy + Math.sin(a) * 20);
         ctx.stroke();
       }
       ctx.fillStyle = COLORS.paper;
-      for (let i = 0; i < 3; i += 1) drawPetal(ctx, cx - 20 + i * 20, cy + 34, 5, COLORS.paper);
+      for (let i = 0; i < 3; i += 1) {
+        const fall = (time * 16 + i * 12) % 32;
+        const x = cx - 20 + i * 20 + Math.sin(time * 1.4 + i) * 3;
+        ctx.beginPath();
+        ctx.arc(x, cy + 12 + fall, 2.4, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.strokeStyle = 'rgba(95,163,188,0.45)';
+        ctx.lineWidth = 1;
+        ctx.stroke();
+      }
     } else {
       for (let i = 0; i < 5; i += 1) {
-        drawPetal(ctx, cx - 24 + i * 12, cy - 8 + (i % 2) * 18, 10, COLORS.petal);
+        const fall = (time * 22 + i * 9) % 40;
+        drawPetal(
+          ctx,
+          cx - 24 + i * 12 + Math.sin(time * 1.2 + i) * 5,
+          cy - 14 + fall,
+          6.4,
+          i % 2 === 0 ? COLORS.petal : COLORS.honey,
+        );
       }
     }
     ctx.restore();
