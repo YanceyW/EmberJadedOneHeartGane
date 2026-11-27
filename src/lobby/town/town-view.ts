@@ -1673,7 +1673,7 @@ function drawFacilityWithOverlay(
   ctx.save();
   ctx.translate(screen.x, screen.y + sink);
   ctx.scale(scale, scale);
-  // 库房没有「可游玩」徽章，只有招牌、夜灯与纸纹。
+  // 所有场馆/设施门口都不挂「可游玩」徽章，只留招牌、夜灯与纸纹。
   drawFacilityOverlay(ctx, facility, state.palette, state.time, !state.sceneMotion);
   if (pressed) {
     ctx.globalAlpha = 0.16;

@@ -1121,7 +1121,7 @@ export function drawBuildingOverlay(
   ctx.restore();
 
   if (building.entry.status === 'playable') {
-    // 门口暖光 + 小木吊牌，不在立面上套大方框。
+    // 门口只留暖光，不再挂「可游玩」吊牌。
     const door = anchors.door;
     for (let i = 3; i > 0; i -= 1) {
       ctx.globalAlpha = 0.06 + (3 - i) * 0.035;
@@ -1130,28 +1130,6 @@ export function drawBuildingOverlay(
       ctx.ellipse(door.x, door.y - 12, 20 + i * 11, 13 + i * 7, 0, 0, Math.PI * 2);
       ctx.fill();
     }
-    ctx.globalAlpha = 1;
-    ctx.save();
-    ctx.translate(door.x, door.y - 44);
-    if (!reducedMotion) ctx.rotate(Math.sin(time * 1.5 + building.base.x) * 0.05);
-    inkLine(ctx, [{ x: 0, y: -10 }, { x: 0, y: 0 }], {
-      stroke: palette.woodDeep,
-      width: 2,
-      seed: 413,
-      wobble: 0.2,
-    });
-    inkRoundRect(ctx, -34, 0, 68, 22, 10, building.accent.main, {
-      stroke: 'rgba(58,46,42,0.20)',
-      width: 1.4,
-      seed: 411,
-    });
-    drawText(ctx, '可游玩', 0, 11, {
-      size: 12.5,
-      weight: '700',
-      color: COLORS.paper,
-      align: 'center',
-    });
-    ctx.restore();
     ctx.globalAlpha = 1;
   }
 }
