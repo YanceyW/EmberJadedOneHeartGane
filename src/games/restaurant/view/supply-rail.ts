@@ -34,8 +34,8 @@ const SOURCE_LABEL: Record<ShiftSupplySource, string> = {
 export function drawSupplyRail(
   ctx: CanvasRenderingContext2D,
   rect: Rect,
-  slots: readonly ShiftSupplySlot[],
-  scroll: number,
+  slots: readonly ShiftSupplySlot[] = [],
+  scroll = 0,
 ): SupplyRailLayout {
   drawPaperPanel(ctx, rect, {
     fill: 'rgba(255,253,248,0.72)',

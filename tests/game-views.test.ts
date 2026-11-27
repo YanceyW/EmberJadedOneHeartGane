@@ -83,6 +83,12 @@ describe('game view render smoke', () => {
       expect(view.hitTest(90, 1470)?.kind).toBe('palette');
       expect(view.hitTest(646, 1430)).toEqual({ kind: 'supply-arrow', direction: -1 });
       expect(view.hitTest(678, 1430)).toEqual({ kind: 'supply-arrow', direction: 1 });
+      const legacyState = {
+        ...state,
+        supplyRail: undefined,
+        supplyScroll: undefined,
+      } as unknown as typeof state;
+      view.render(renderer, legacyState, 'shift', 'farm', shift, 0, null);
       view.drawSettle(renderer.ctx, renderer.width, renderer.height, {
         revenue: 120,
         penalty: 0,

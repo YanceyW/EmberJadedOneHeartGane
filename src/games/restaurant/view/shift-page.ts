@@ -6,6 +6,7 @@ import {
   SHIFT_SEATS,
   ShiftState,
   shiftAverageQuality,
+  shiftSupplySlots,
 } from '../systems/shift';
 import { RestaurantViewState } from './restaurant-view-data';
 import { ShiftPageLayout } from './restaurant-types';
@@ -162,7 +163,14 @@ export function drawShiftPage(
   drawCounter(ctx, counter, shift.counter, state.selectedCounter);
 
   base.paletteBin = { x: 48, y: supplyTop, w: width - 96, h: supplyH };
-  const rail = drawSupplyRail(ctx, base.paletteBin, state.supplyRail, state.supplyScroll);
+  // 兼容旧分包热更新：旧 game.js 可能还没有 supplyRail 字段。
+  const supplySlots = state.supplyRail ?? shiftSupplySlots(shift.supply);
+  const rail = drawSupplyRail(
+    ctx,
+    base.paletteBin,
+    supplySlots,
+    state.supplyScroll ?? 0,
+  );
   base.palette = rail.chips;
   base.palettePrev = rail.prev;
   base.paletteNext = rail.next;
